@@ -87,3 +87,26 @@ def get_usage(api_key: str = Depends(verify_api_key)):
     used = cur.fetchone()[0]
     limit = DEMO_KEYS[api_key]["limit"]
     return {"plan": DEMO_KEYS[api_key]["plan"], "claims_used": used, "claims_remaining": limit - used}
+import stripe
+import os
+
+stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+
+@app.post("/create-checkout")
+def create_checkout(plan: str):
+    prices = {"developer": 2900, "pro": 9900} # $29 and $99
+    
+    checkout_session = stripe.checkout.Session.create(
+        payment_method_types=['card'],
+        line_items=[{
+            'price_data': {
+                'currency': 'usd',
+                'product_data': {'name': f'TruthGuard {plan} Plan'},
+                'unit_amount': prices[plan],
+            },
+            'quantity': 1,
+        }],
+        mode='payment',
+        success_url='https://truthguard.io/success',
+    )
+    return {"checkout_url": checkout_session.url}
