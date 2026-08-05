@@ -110,3 +110,35 @@ def create_checkout(plan: str):
         success_url='https://truthguard.io/success',
     )
     return {"checkout_url": checkout_session.url}
+from fastapi import Request, HTTPException
+
+# Add this under your STRIPE_PRICE_IDS
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
+
+@app.post("/webhook")
+async def stripe_webhook(request: Request):
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, STRIPE_WEBHOOK_SECRET
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Webhook error")
+
+    # When payment succeeds
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+        customer_email = session["customer_details"]["email"]
+        plan = session["metadata"]["plan"]
+        
+        # 1. Generate API key
+        api_key = "tg_" + os.urandom(16).hex()
+        
+        # 2. TODO: Save api_key + email + plan to database
+        print(f"PAID! Email: {customer_email}, Plan: {plan}, Key: {api_key}")
+        
+        # 3. TODO: Email the API key to customer
+
+    return {"status": "success"}
