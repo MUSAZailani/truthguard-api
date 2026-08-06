@@ -91,6 +91,8 @@ import stripe
 import os
 
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
+@app.get("/create-checkout")
+@app.post("/create-checkout")
 
 @app.post("/create-checkout")
 def create_checkout(plan: str):
