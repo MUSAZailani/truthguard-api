@@ -65,7 +65,6 @@ def verify_api_key(authorization: str = Header(None)):
 
 # ===== 4. TRUTHGUARD FUNCTION WITH GROQ =====
 def run_truthguard(claim: str):
-    # If no GROQ key, return mock response so API doesn't crash
     if not GROQ_API_KEY:
         return {
             "claim": claim,
@@ -75,7 +74,6 @@ def run_truthguard(claim: str):
             "sources": []
         }
 
-    # Real Groq call
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
@@ -93,7 +91,7 @@ def run_truthguard(claim: str):
         r.raise_for_status()
         data = r.json()
         content = data["choices"][0]["message"]["content"]
-        return json.loads(content) # FIXED: no more eval
+        return json.loads(content)
     except Exception as e:
         return {
             "claim": claim,
@@ -127,12 +125,10 @@ def get_usage(api_key: str = Depends(verify_api_key)):
 @app.get("/create-checkout")
 @app.post("/create-checkout")
 def create_checkout(plan: str, email: str):
-    # IF MOCK IS ON, RETURN FAKE LINK IMMEDIATELY
     if MOCK_PAYMENTS:
         fake_url = f"https://checkout.stripe.com/mock/success?plan={plan}&email={email}"
         return {"checkout_url": fake_url, "mode": "MOCK"}
 
-    # ONLY CHECK STRIPE IF MOCK IS OFF
     if not STRIPE_PRICE_ID:
         raise HTTPException(status_code=500, detail="STRIPE_PRICE_ID not set in Railway")
     if not stripe.api_key:
@@ -169,3 +165,24 @@ async def stripe_webhook(request: Request):
         customer_email = session["customer_email"]
         print(f"PAID! Email: {customer_email}")
     return {"status": "success"}
+
+# ===== 8. HOMEPAGE =====
+@app.get("/")
+def home():
+    return {
+        "message": "Welcome to TruthGuard AI",
+        "description": "AI-Powered Fact Checking API by Musa Zailani",
+        "docs": "https://truthguard-api-production-d58a.up.railway.app/docs",
+        "how_to_use": "1. Go to /docs 2. Authorize with Bearer tg_dev_002 3. Try POST /fact-check",
+        "endpoints": {
+            "fact_check": "POST /fact-check",
+            "usage": "GET /usage",
+            "checkout": "POST /create-checkout"
+        },
+        "contact": {
+            "name": "Musa Zailani",
+            "email": "zailaniheman@gmail.com"
+        },
+        "status": "LIVE",
+        "founder": "Musa Zailani"
+    }
