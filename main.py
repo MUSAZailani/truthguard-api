@@ -5,6 +5,7 @@ import time
 import stripe
 import os
 import requests
+import json
 
 app = FastAPI(
     title="TruthGuard AI",
@@ -68,7 +69,7 @@ def run_truthguard(claim: str):
     if not GROQ_API_KEY:
         return {
             "claim": claim,
-            "verdict": "NEEDS_REVIEW",
+            "verdict": "UNCERTAIN",
             "confidence": 0.5,
             "explanation": "GROQ_API_KEY not set. Using mock response.",
             "sources": []
@@ -80,9 +81,9 @@ def run_truthguard(claim: str):
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "llama-3.1-8b-instant",
+        "model": "llama-3.3-70b-versatile",
         "messages": [
-            {"role": "system", "content": "You are TruthGuard. Analyze claims and return JSON with verdict: GROUNDED, MISLEADING, or FALSE. Include confidence 0-1 and explanation."},
+            {"role": "system", "content": "You are TruthGuard. Analyze claims and return JSON with verdict: GROUNDED, CONTRADICTED, or UNCERTAIN. Include confidence 0-1, explanation, and sources as a list of URLs."},
             {"role": "user", "content": f"Fact-check this claim: {claim}"}
         ],
         "response_format": {"type": "json_object"}
@@ -92,7 +93,7 @@ def run_truthguard(claim: str):
         r.raise_for_status()
         data = r.json()
         content = data["choices"][0]["message"]["content"]
-        return eval(content) # Groq returns JSON string
+        return json.loads(content) # FIXED: no more eval
     except Exception as e:
         return {
             "claim": claim,
@@ -143,12 +144,12 @@ def create_checkout(plan: str, email: str):
             'price': STRIPE_PRICE_ID,
             'quantity': 1,
         }],
-        mode='payment',
+        mode='subscription',
         customer_email=email,
         success_url='https://google.com',
         cancel_url='https://google.com',
     )
-    return {"url": checkout_session.url}
+    return {"checkout_url": checkout_session.url}
 
 # ===== 7. WEBHOOK =====
 @app.post("/webhook")
