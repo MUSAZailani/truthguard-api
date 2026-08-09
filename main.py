@@ -6,7 +6,18 @@ import stripe
 import os
 import requests
 
-app = FastAPI(title="TruthGuard API")
+app = FastAPI(
+    title="TruthGuard AI",
+    description="AI-Powered Fact Checking API. Verify any claim instantly with Groq LLM. Get verdict: GROUNDED, CONTRADICTED, or UNCERTAIN with explanation and sources.",
+    version="1.0.0",
+    contact={
+        "name": "Musa Zailani",
+        "email": "zailaniheman@gmail.com",
+    },
+    license_info={
+        "name": "Proprietary",
+    },
+)
 
 # ===== ENV SETUP =====
 MOCK_PAYMENTS = os.getenv("MOCK_PAYMENTS", "false") == "true"
