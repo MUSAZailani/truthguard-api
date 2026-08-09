@@ -4,15 +4,18 @@ import sqlite3
 import time
 import stripe
 import os
+import requests
 
 app = FastAPI(title="TruthGuard API")
 
-# STRIPE SETUP
+# ===== ENV SETUP =====
+MOCK_PAYMENTS = os.getenv("MOCK_PAYMENTS", "false") == "true"
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_PRICE_ID = os.getenv("STRIPE_PRICE_ID")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-# 1. DATABASE SETUP
+# ===== 1. DATABASE SETUP =====
 conn = sqlite3.connect('truthguard.db', check_same_thread=False)
 conn.execute('''CREATE TABLE IF NOT EXISTS api_keys
                 (key TEXT PRIMARY KEY, email TEXT, plan TEXT, claims_used INT DEFAULT 0, created_at REAL)''')
@@ -20,7 +23,7 @@ conn.execute('''CREATE TABLE IF NOT EXISTS usage_log
                 (id INTEGER PRIMARY KEY, api_key TEXT, claim TEXT, verdict TEXT, timestamp REAL)''')
 conn.commit()
 
-# 2. DEMO KEYS
+# ===== 2. DEMO KEYS =====
 DEMO_KEYS = {
     "tg_free_001": {"limit": 1000, "plan": "free"},
     "tg_dev_002": {"limit": 10000, "plan": "developer"},
@@ -32,7 +35,7 @@ for k, v in DEMO_KEYS.items():
                  (k, v["plan"], time.time()))
 conn.commit()
 
-# 3. AUTH FUNCTION
+# ===== 3. AUTH FUNCTION =====
 def verify_api_key(authorization: str = Header(None)):
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header. Use: Bearer YOUR_API_KEY")
@@ -48,17 +51,47 @@ def verify_api_key(authorization: str = Header(None)):
         raise HTTPException(status_code=429, detail=f"Monthly limit of {DEMO_KEYS[api_key]['limit']} reached.")
     return api_key
 
-# 4. YOUR EXISTING TRUTHGUARD FUNCTION
+# ===== 4. TRUTHGUARD FUNCTION WITH GROQ =====
 def run_truthguard(claim: str):
-    return {
-        "claim": claim,
-        "verdict": "GROUNDED",
-        "confidence": 0.95,
-        "explanation": "Checked against knowledge base",
-        "sources": ["https://example.com"]
-    }
+    # If no GROQ key, return mock response so API doesn't crash
+    if not GROQ_API_KEY:
+        return {
+            "claim": claim,
+            "verdict": "NEEDS_REVIEW",
+            "confidence": 0.5,
+            "explanation": "GROQ_API_KEY not set. Using mock response.",
+            "sources": []
+        }
 
-# 5. PROTECTED ENDPOINT
+    # Real Groq call
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [
+            {"role": "system", "content": "You are TruthGuard. Analyze claims and return JSON with verdict: GROUNDED, MISLEADING, or FALSE. Include confidence 0-1 and explanation."},
+            {"role": "user", "content": f"Fact-check this claim: {claim}"}
+        ],
+        "response_format": {"type": "json_object"}
+    }
+    try:
+        r = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        content = data["choices"][0]["message"]["content"]
+        return eval(content) # Groq returns JSON string
+    except Exception as e:
+        return {
+            "claim": claim,
+            "verdict": "ERROR",
+            "confidence": 0.0,
+            "explanation": f"Groq API error: {str(e)}",
+            "sources": []
+        }
+
+# ===== 5. PROTECTED ENDPOINTS =====
 class ClaimRequest(BaseModel):
     claim: str
 
@@ -78,17 +111,25 @@ def get_usage(api_key: str = Depends(verify_api_key)):
     limit = DEMO_KEYS[api_key]["limit"]
     return {"plan": DEMO_KEYS[api_key]["plan"], "claims_used": used, "claims_remaining": limit - used}
 
-# 6. STRIPE CHECKOUT - FIXED
+# ===== 6. STRIPE CHECKOUT - MOCK SUPPORTED =====
 @app.get("/create-checkout")
 @app.post("/create-checkout")
 def create_checkout(plan: str, email: str):
+    # IF MOCK IS ON, RETURN FAKE LINK IMMEDIATELY
+    if MOCK_PAYMENTS:
+        fake_url = f"https://checkout.stripe.com/mock/success?plan={plan}&email={email}"
+        return {"checkout_url": fake_url, "mode": "MOCK"}
+
+    # ONLY CHECK STRIPE IF MOCK IS OFF
     if not STRIPE_PRICE_ID:
         raise HTTPException(status_code=500, detail="STRIPE_PRICE_ID not set in Railway")
+    if not stripe.api_key:
+        raise HTTPException(status_code=500, detail="STRIPE_SECRET_KEY not set in Railway")
 
     checkout_session = stripe.checkout.Session.create(
         payment_method_types=['card'],
         line_items=[{
-            'price': STRIPE_PRICE_ID, # Use the Price ID from Stripe
+            'price': STRIPE_PRICE_ID,
             'quantity': 1,
         }],
         mode='payment',
@@ -98,9 +139,12 @@ def create_checkout(plan: str, email: str):
     )
     return {"url": checkout_session.url}
 
-# 7. WEBHOOK
+# ===== 7. WEBHOOK =====
 @app.post("/webhook")
 async def stripe_webhook(request: Request):
+    if MOCK_PAYMENTS:
+        return {"status": "mock_success"}
+
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
     try:
