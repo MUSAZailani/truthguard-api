@@ -11,7 +11,7 @@ from pydantic import BaseModel
 app = FastAPI(
     title="TruthGuard AI v2.2",
     description="Upload CSV → Get Clean CSV. The Data Cleaning Layer for AI Companies.",
-    version="2.2.0",
+    version="2.2.1",
     contact={"name": "Musa Zailani", "email": "zailaniheman@gmail.com"}
 )
 
@@ -75,9 +75,9 @@ async def clean_dataset(request: BatchRequest, req: Request):
     return {"total_processed": len(request.claims), "grounded_count": len(grounded_claims), "contradicted_count": contradicted, "uncertain_count": uncertain, "clean_dataset": grounded_claims, "full_report": results}
 
 @app.post("/upload-csv")
-async def upload_csv(file: UploadFile = File(...), req: Request):
+async def upload_csv(req: Request, file: UploadFile = File(...)):
     """
-    NEW: Upload a CSV with a 'claim' column. Get back a clean CSV with only GROUNDED claims.
+    Upload a CSV with a 'claim' column. Get back a clean CSV with only GROUNDED claims.
     """
     log_visit(req.client.host, f"CSV: {file.filename}", "csv_upload")
     
@@ -114,4 +114,4 @@ def stats():
     except: return {"total_visits": 0, "visits": []}
 
 @app.get("/health")
-def health(): return {"status": "LIVE v2.2", "founder": "Musa Zailani"}
+def health(): return {"status": "LIVE v2.2.1", "founder": "Musa Zailani"}
