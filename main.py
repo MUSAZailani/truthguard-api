@@ -1,16 +1,21 @@
 import os
 import requests
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 
 app = FastAPI(
     title="TruthGuard AI",
     description="AI-Powered Fact Checking API. Verify any claim instantly with Groq LLM.",
-    version="1.2.0",
+    version="1.3.0",
     contact={"name": "Musa Zailani", "email": "zailaniheman@gmail.com"}
 )
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+
+# THIS MAKES THE INPUT BOX APPEAR
+class ClaimRequest(BaseModel):
+    claim: str
 
 @app.get("/", response_class=HTMLResponse)
 def home():
@@ -42,9 +47,8 @@ def home():
     """
 
 @app.post("/fact-check")
-async def fact_check(request: Request):
-    data = await request.json()
-    claim = data.get("claim")
+async def fact_check(request: ClaimRequest):
+    claim = request.claim
     
     prompt = f"You are a fact-checker. Claim: '{claim}'. Respond ONLY in JSON with keys: verdict, explanation."
     
