@@ -1,12 +1,16 @@
-from fastapi import FastAPI
+import os
+import requests
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 
 app = FastAPI(
     title="TruthGuard AI",
     description="AI-Powered Fact Checking API. Verify any claim instantly with Groq LLM.",
-    version="1.1.0",
+    version="1.2.0",
     contact={"name": "Musa Zailani", "email": "zailaniheman@gmail.com"}
 )
+
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 @app.get("/", response_class=HTMLResponse)
 def home():
@@ -36,6 +40,20 @@ def home():
     </body>
     </html>
     """
+
+@app.post("/fact-check")
+async def fact_check(request: Request):
+    data = await request.json()
+    claim = data.get("claim")
+    
+    prompt = f"You are a fact-checker. Claim: '{claim}'. Respond ONLY in JSON with keys: verdict, explanation."
+    
+    res = requests.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+        json={"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}]}
+    )
+    return res.json()
 
 @app.get("/health")
 def health():
