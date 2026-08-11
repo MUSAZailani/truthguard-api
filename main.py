@@ -8,18 +8,10 @@ from fastapi import FastAPI, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
-app = FastAPI(
-    title="TruthGuard AI v2.2",
-    description="Upload CSV → Get Clean CSV. The Data Cleaning Layer for AI Companies.",
-    version="2.2.1",
-    contact={"name": "Musa Zailani", "email": "zailaniheman@gmail.com"}
-)
+app = FastAPI(title="TruthGuard AI v2.3", version="2.3.0")
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 VISITOR_LOG = "visitors.json"
-
-class ClaimRequest(BaseModel):
-    claim: str
 
 class BatchRequest(BaseModel):
     claims: list[str]
@@ -50,17 +42,29 @@ Verdict must be: GROUNDED, CONTRADICTED, or UNCERTAIN."""
 @app.get("/", response_class=HTMLResponse)
 def home():
     return """
-    <!DOCTYPE html><html><head><title>TruthGuard AI v2.2</title>
-    <style>body{font-family:Arial;background:#0f172a;color:white;text-align:center;padding:40px}
-    h1{font-size:48px;color:#38bdf8}.btn{background:#38bdf8;color:#0f172a;padding:14px 28px;text-decoration:none;border-radius:10px;font-weight:bold}</style>
-    </head><body><h1>TruthGuard AI v2.2</h1>
-    <p>Upload CSV → Get Clean CSV</p><br>
-    <a href="/docs" class="btn">Try CSV Upload →</a></body></html>"""
-
-@app.post("/fact-check")
-async def fact_check(request: ClaimRequest, req: Request):
-    log_visit(req.client.host, request.claim, "single")
-    return await fact_check_single(request.claim)
+    <!DOCTYPE html><html><head><title>TruthGuard AI</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+    body{font-family:Arial;background:#0f172a;color:white;text-align:center;padding:20px}
+    h1{font-size:36px;color:#38bdf8} 
+   .box{background:#1e293b;padding:30px;border-radius:12px;max-width:500px;margin:40px auto}
+    input[type=file]{margin:20px 0;color:white}
+    button{background:#38bdf8;color:#0f172a;padding:14px 28px;border:none;border-radius:10px;font-weight:bold;font-size:16px;cursor:pointer}
+    button:hover{background:#0ea5e9}
+   .note{font-size:12px;color:#94a3b8;margin-top:15px}
+    </style></head><body>
+    <h1>TruthGuard AI v2.3</h1>
+    <p>Upload your CSV → Download Clean CSV</p>
+    <div class="box">
+      <form action="/upload-csv" method="post" enctype="multipart/form-data">
+        <p>CSV must have a column named: <b>claim</b></p>
+        <input type="file" name="file" accept=".csv" required><br>
+        <button type="submit">Clean My Data</button>
+      </form>
+      <p class="note">Example: claim\\nNigeria is in Africa\\nThe moon is cheese</p>
+    </div>
+    <a href="/docs" style="color:#38bdf8">API Docs</a>
+    </body></html>"""
 
 @app.post("/clean-dataset")
 async def clean_dataset(request: BatchRequest, req: Request):
@@ -76,42 +80,21 @@ async def clean_dataset(request: BatchRequest, req: Request):
 
 @app.post("/upload-csv")
 async def upload_csv(req: Request, file: UploadFile = File(...)):
-    """
-    Upload a CSV with a 'claim' column. Get back a clean CSV with only GROUNDED claims.
-    """
     log_visit(req.client.host, f"CSV: {file.filename}", "csv_upload")
-    
     contents = await file.read()
     csv_reader = csv.DictReader(io.StringIO(contents.decode('utf-8')))
-    
-    claims = [row['claim'] for row in csv_reader] # Expects column named "claim"
-    
-    # Process in batches
+    claims = [row['claim'] for row in csv_reader]
     batch_size = 30
     clean_rows = []
-    
     for i in range(0, len(claims), batch_size):
         batch = claims[i:i+batch_size]
         result = await clean_dataset(BatchRequest(claims=batch), req)
         for item in result["full_report"]:
             if item["verdict"] == "GROUNDED":
                 clean_rows.append({"claim": item["claim"], "verdict": item["verdict"]})
-    
-    # Return new CSV
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=["claim", "verdict"])
     writer.writeheader()
     writer.writerows(clean_rows)
-    
     output.seek(0)
     return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=clean_data.csv"})
-
-@app.get("/stats")
-def stats():
-    try:
-        with open(VISITOR_LOG, "r") as f: logs = json.load(f)
-        return {"total_visits": len(logs), "visits": logs[-50:]}
-    except: return {"total_visits": 0, "visits": []}
-
-@app.get("/health")
-def health(): return {"status": "LIVE v2.2.1", "founder": "Musa Zailani"}
