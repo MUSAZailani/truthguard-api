@@ -3,130 +3,146 @@ import requests
 import json
 import datetime
 import re
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+import csv
+import io
+from fastapi import FastAPI, Request, UploadFile, File
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-app = FastAPI(title="TruthGuard AI v2.9", version="2.9.0")
+app = FastAPI(title="TruthGuard AI v3.0", version="3.0.0")
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+CREDITS = 1000 # Start with 1000 free credits for testing
 
 class CleanRequest(BaseModel):
     data: str
 
 def parse_ai_response(text):
-    """Handles [{}][{}] or [{}, {}] formats"""
     try:
-        # Try normal JSON array first
         return json.loads(text)
     except:
-        pass
-    
-    # Extract all {...} objects and combine them
-    objects = re.findall(r'\{.*?\}', text, re.DOTALL)
-    results = []
-    for obj_str in objects:
-        try:
-            results.append(json.loads(obj_str))
-        except:
-            continue
-    
-    if results:
-        return results
-    
-    return [{"original": text, "cleaned": "Parse Error", "verdict": "Error", "explanation": "Could not parse AI response"}]
+        objects = re.findall(r'\{.*?\}', text, re.DOTALL)
+        results = []
+        for obj_str in objects:
+            try: results.append(json.loads(obj_str))
+            except: continue
+        return results if results else [{"original": text, "cleaned": "Parse Error", "verdict": "Error", "explanation": "Could not parse"}]
 
 def clean_with_groq(text):
+    global CREDITS
+    if CREDITS <= 0: return [{"error": "No credits left. Please buy more."}]
+    
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    prompt = f"""Process each line below. Return ONE JSON array with objects for each line.
+    prompt = f"""Process each line. Return ONE JSON array.
+    RULES: 'cleaned' MUST be factually correct. 'verdict' = True, False, or Partially True
     Format: [{{"original":"...", "cleaned":"...", "verdict":"...", "explanation":"..."}}]
-    RULES: 
-    1. 'cleaned' MUST be factually correct. Fix lies.
-    2. 'verdict' = True, False, or Partially True
-    3. No markdown, no extra text, just the JSON array.
-
-    Lines:
-    {text}"""
+    Lines: {text}"""
     payload = {"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0}
-    r = requests.post(url, headers=headers, json=payload, timeout=60)
+    r = requests.post(url, headers=headers, json=payload, timeout=120)
     ai_response = r.json()["choices"][0]["message"]["content"]
-    return parse_ai_response(ai_response)
+    results = parse_ai_response(ai_response)
+    CREDITS -= len(results) # Deduct credits
+    return results
 
 @app.get("/", response_class=HTMLResponse)
 def home():
-    return HTMLResponse(content="""
+    return HTMLResponse(content=f"""
     <html>
     <head>
-        <title>TruthGuard AI v2.9</title>
+        <title>TruthGuard AI v3.0</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-            body { font-family: Arial; background: #0a0a0a; color: #fff; padding: 20px; text-align: center; }
-            textarea { width: 90%; height: 200px; background: #1a1a1a; color: #fff; border: 1px solid #333; padding: 10px; border-radius: 8px; font-size:16px }
-      .btn { padding: 18px; border: none; border-radius: 12px; font-weight: bold; margin-top: 12px; cursor: pointer; width: 90%; font-size:18px }
-      .green { background: #00FF88; color: #000; }
-      .plan { background: #111; border: 2px solid #333; padding: 25px; border-radius: 12px; margin: 15px auto; width: 90%; }
-      .plan h3 { margin: 0; color: #00C3FF; font-size:22px }
-      .plan p { font-size:20px; margin:10px 0; }
-      .popular { border: 2px solid #00FF88; }
-      .badge { background:#00FF88; color:#000; padding:5px 10px; border-radius:20px; font-size:12px; font-weight:bold }
-         #result { margin-top:20px; text-align:left; }
-       .result-card { background:#1a1a1a; padding:15px; border-radius:8px; margin-bottom:15px; font-size:14px; line-height:1.6; border-left: 4px solid #00C3FF }
-    .verdict-true { color:#00FF88; font-weight:bold }
-    .verdict-false { color:#FF4444; font-weight:bold }
-    .verdict-partial { color:#FFC107; font-weight:bold }
+            body {{ font-family: Arial; background: #0a0a0a; color: #fff; padding: 20px; text-align: center; }}
+           .credit-bar {{ background:#111; padding:15px; border-radius:12px; margin-bottom:20px; border:2px solid #00FF88 }}
+           .credit-bar h2 {{ color:#00FF88; margin:0 }}
+            textarea {{ width: 90%; height: 150px; background: #1a1a1a; color: #fff; border: 1px solid #333; padding: 10px; border-radius: 8px; font-size:16px }}
+           .btn {{ padding: 18px; border: none; border-radius: 12px; font-weight: bold; margin: 8px; cursor: pointer; width: 90%; font-size:18px }}
+           .green {{ background: #00FF88; color: #000; }}.blue {{ background: #00C3FF; color: #000; }}
+           .plan {{ background: #111; border: 2px solid #333; padding: 25px; border-radius: 12px; margin: 15px auto; width: 90%; }}
+            #result {{ margin-top:20px; text-align:left; }}
+           .result-card {{ background:#1a1a1a; padding:15px; border-radius:8px; margin-bottom:15px; font-size:14px; line-height:1.6; border-left: 4px solid #00C3FF }}
+           .verdict-true {{ color:#00FF88; font-weight:bold }}.verdict-false {{ color:#FF4444; font-weight:bold }}.verdict-partial {{ color:#FFC107; font-weight:bold }}
         </style>
     </head>
     <body>
-        <h1>TruthGuard AI v2.9</h1>
-        <p>Batch Data Cleaning & Fact Checking</p>
+        <h1>TruthGuard AI v3.0</h1>
+        <div class="credit-bar"><h2>Credits Left: <span id="credits">{CREDITS}</span></h2></div>
 
+        <h3>Option 1: Paste Data</h3>
         <textarea id="claims" placeholder="Paste multiple claims. One per line."></textarea>
         <br>
-        <button class="btn green" onclick="cleanData()">Clean My Data</button>
+        <button class="btn green" onclick="cleanData()">Clean Text</button>
+
+        <h3>Option 2: Upload CSV</h3>
+        <input type="file" id="csvFile" accept=".csv,.txt" style="margin:10px">
+        <button class="btn blue" onclick="uploadCSV()">Upload & Clean CSV</button>
+        <button class="btn" style="background:#FFC107;color:#000" onclick="downloadCSV()">Download Results CSV</button>
 
         <div id="result"></div>
 
-        <h2 style="margin-top:30px">Choose Your Data Cleaning Plan</h2>
-        <div class="plan"><h3>Starter</h3><p><b>₦7,500</b> for 500</p><button class="btn" style="background:#00C3FF;color:#000" onclick="pay(7500,500)">Pay ₦7,500</button></div>
-        <div class="plan"><h3>Basic</h3><p><b>₦15,000</b> for 1,000</p><button class="btn" style="background:#00C3FF;color:#000" onclick="pay(15000,1000)">Pay ₦15,000</button></div>
-        <div class="plan popular"><span class="badge">MOST POPULAR</span><h3>Growth</h3><p><b>₦75,000</b> for 10,000</p><button class="btn" style="background:#00FF88;color:#000" onclick="pay(75000,10000)">Pay ₦75,000</button></div>
-        <div class="plan"><h3>Enterprise</h3><p><b>₦150,000</b> for 20,000</p><button class="btn" style="background:#00C3FF;color:#000" onclick="pay(150000,20000)">Pay ₦150,000</button></div>
+        <h2 style="margin-top:30px">Buy More Credits</h2>
+        <div class="plan"><h3>Starter</h3><p><b>₦7,500</b> for 500 credits</p><button class="btn" style="background:#00C3FF;color:#000" onclick="pay(7500,500)">Pay ₦7,500</button></div>
+        <div class="plan"><h3>Growth</h3><p><b>₦75,000</b> for 10,000 credits</p><button class="btn" style="background:#00FF88;color:#000" onclick="pay(75000,10000)">Pay ₦75,000</button></div>
 
         <script src="https://js.paystack.co/v1/inline.js"></script>
         <script>
-        async function cleanData() {
+        let lastResults = [];
+        async function cleanData() {{
             const data = document.getElementById('claims').value;
             if(!data) return alert('Paste some data first');
-            document.getElementById('result').innerHTML = '<p>Cleaning...</p>';
-            const res = await fetch('/clean', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({data:data})});
+            await processAndDisplay(data);
+        }}
+        async function uploadCSV() {{
+            const file = document.getElementById('csvFile').files[0];
+            if(!file) return alert('Select a file');
+            const text = await file.text();
+            await processAndDisplay(text);
+        }}
+        async function processAndDisplay(data) {{
+            document.getElementById('result').innerHTML = '<p>Cleaning... This may take 1-2 mins for large files</p>';
+            const res = await fetch('/clean', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body:JSON.stringify({{data:data}})}});
             const jsonArray = await res.json();
+            lastResults = jsonArray;
             let html = '';
-            jsonArray.forEach(item => {
-                let verdictClass = 'verdict-partial';
-                if(item.verdict === 'True') verdictClass = 'verdict-true';
-                if(item.verdict === 'False') verdictClass = 'verdict-false';
+            jsonArray.forEach(item => {{
+                if(item.error) {{ html = `<p style="color:red">${{item.error}}</p>`; return; }}
+                let verdictClass = item.verdict === 'True'? 'verdict-true' : item.verdict === 'False'? 'verdict-false' : 'verdict-partial';
                 html += `<div class="result-card">
-                    <b>Original:</b> ${item.original}<br><br>
-                    <b>Cleaned:</b> ${item.cleaned}<br><br>
-                    <b>Verdict:</b> <span class="${verdictClass}">${item.verdict}</span><br><br>
-                    <b>Explanation:</b> ${item.explanation}
+                    <b>Original:</b> ${{item.original}}<br><br>
+                    <b>Cleaned:</b> ${{item.cleaned}}<br><br>
+                    <b>Verdict:</b> <span class="${{verdictClass}}">${{item.verdict}}</span><br><br>
+                    <b>Explanation:</b> ${{item.explanation}}
                 </div>`;
-            });
+            }});
             document.getElementById('result').innerHTML = html;
-        }
-        function pay(amount, claims) {
-          var handler = PaystackPop.setup({
+            document.getElementById('credits').innerText = {CREDITS} - jsonArray.length;
+        }}
+        function downloadCSV() {{
+            if(lastResults.length === 0) return alert('Clean some data first');
+            let csv = 'Original,Cleaned,Verdict,Explanation\\n';
+            lastResults.forEach(r => {{
+                csv += `"${{r.original}}","${{r.cleaned}}","${{r.verdict}}","${{r.explanation}}"\\n`;
+            }});
+            const blob = new Blob([csv], {{type: 'text/csv'}});
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = 'truthguard_results.csv'; a.click();
+        }}
+        function pay(amount, credits) {{
+          var handler = PaystackPop.setup({{
             key: 'pk_test_b89a61386411b3b47b79d402555417e1b333261c',
-            email: 'test@example.com',
+            email: 'customer@example.com',
             amount: amount * 100,
             currency: 'NGN',
             ref: 'TG_' + Date.now(),
-            callback: function(response){ alert('Payment Successful! ' + claims.toLocaleString() + ' credits. Ref: ' + response.reference); },
-            onClose: function(){ alert('Payment cancelled'); }
-          });
+            callback: function(response){{ 
+                alert('Payment Successful! ' + credits.toLocaleString() + ' credits added. Ref: ' + response.reference);
+                location.reload();
+            }},
+            onClose: function(){{ alert('Payment cancelled'); }}
+          }});
           handler.openIframe();
-        }
+        }}
         </script>
     </body>
     </html>
