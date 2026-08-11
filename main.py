@@ -53,18 +53,23 @@ def home():
 
         <script src="https://js.paystack.co/v1/inline.js"></script>
         <script>
-          document.getElementById('payBtn').onclick = function() {
-            PaystackPop.setup({
-              key: 'pk_test_b89a61386411b3b47b79d402555417e1b333261c',
-              email: 'test@example.com',
-              amount: 1000000, // 10000 * 100 = kobo
-              currency: 'NGN',
-              ref: 'TG_' + Date.now(),
-              callback: function(response){ 
-                alert('Payment Successful! Ref: ' + response.reference + '\n\nWe will unlock 1000 claims for you'); 
-              }
-            }).openIframe();
-          }
+        function payWithPaystack() {
+          var handler = PaystackPop.setup({
+            key: 'pk_test_b89a61386411b3b47b79d402555417e1b333261c',
+            email: 'test@example.com',
+            amount: 1000000,
+            currency: 'NGN',
+            ref: 'TG_' + Date.now(),
+            callback: function(response){ 
+              alert('Payment Successful! Ref: ' + response.reference); 
+            },
+            onClose: function(){
+              alert('Payment window closed');
+            }
+          });
+          handler.openIframe();
+        }
+        document.getElementById('payBtn').addEventListener('click', payWithPaystack, false);
         </script>
         <!-- PAYMENT BUTTON END -->
         
