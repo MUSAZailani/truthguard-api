@@ -1,6 +1,6 @@
 fastapi
 uvicorn[standard]
-httpx
+requests
 pydantic
+reportlab
 python-multipart
-stripe
