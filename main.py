@@ -7,56 +7,46 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-app = FastAPI(title="TruthGuard AI v2.7", version="2.7.0")
+app = FastAPI(title="TruthGuard AI v2.8", version="2.8.0")
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-VISITOR_LOG = "visitors.json"
 
 class CleanRequest(BaseModel):
     data: str
 
-def log_visit(ip: str, data: str):
-    log_entry = {"time": datetime.datetime.now().isoformat(), "ip": ip, "data": data}
-    try:
-        with open(VISITOR_LOG, "a") as f:
-            f.write(json.dumps(log_entry) + "\n")
-    except:
-        pass
-
 def clean_with_groq(text):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    prompt = f"""You are TruthGuard AI, an expert data cleaner and fact-checker.
+    prompt = f"""You are TruthGuard AI. Process each line separately.
     CRITICAL RULES:
-    1. 'cleaned' MUST contain the FACTUALLY CORRECT version. If the original is false, correct it in 'cleaned'.
-       Example: "Cats can fly" -> cleaned: "Cats cannot fly"
-    2. Fix grammar and spelling in 'cleaned'
-    3. For 'verdict' choose only: True, False, or Partially True
-    4. 'explanation' must explain why.
-    5. Return ONLY valid JSON. No other text.
+    1. Return a JSON ARRAY. Example: [{{"original":"...", "cleaned":"...", "verdict":"...", "explanation":"..."}}]
+    2. 'cleaned' MUST be the FACTUALLY CORRECT version. Correct false claims.
+    3. 'verdict' = True, False, or Partially True
+    4. Fix grammar in 'cleaned'
+    5. Return ONLY the JSON array. No other text. No ```json
 
-    Format: {{"original": "...", "cleaned": "...", "verdict": "...", "explanation": "..."}}
-
-    Input: {text}"""
+    Input lines:
+    {text}"""
     payload = {"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0}
-    r = requests.post(url, headers=headers, json=payload, timeout=30)
+    r = requests.post(url, headers=headers, json=payload, timeout=60)
     ai_response = r.json()["choices"][0]["message"]["content"]
 
     try:
-        json_match = re.search(r'\{.*\}', ai_response, re.DOTALL)
+        # Extract JSON array
+        json_match = re.search(r'\[.*\]', ai_response, re.DOTALL)
         if json_match:
             return json.loads(json_match.group())
         else:
-            return {"original": text, "cleaned": "AI Error", "verdict": "Error", "explanation": ai_response}
+            return [{"original": text, "cleaned": "Parse Error", "verdict": "Error", "explanation": ai_response}]
     except:
-        return {"original": text, "cleaned": "AI Error", "verdict": "Error", "explanation": ai_response}
+        return [{"original": text, "cleaned": "Parse Error", "verdict": "Error", "explanation": ai_response}]
 
 @app.get("/", response_class=HTMLResponse)
 def home():
     return HTMLResponse(content="""
     <html>
     <head>
-        <title>TruthGuard AI v2.7</title>
+        <title>TruthGuard AI v2.8</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
             body { font-family: Arial; background: #0a0a0a; color: #fff; padding: 20px; text-align: center; }
@@ -68,17 +58,17 @@ def home():
        .plan p { font-size:20px; margin:10px 0; }
        .popular { border: 2px solid #00FF88; }
        .badge { background:#00FF88; color:#000; padding:5px 10px; border-radius:20px; font-size:12px; font-weight:bold }
-         #result { background:#1a1a1a; padding:15px; border-radius:8px; margin-top:20px; text-align:left; white-space:pre-wrap; display:none; font-size:14px; line-height:1.6 }
-      .verdict-true { color:#00FF88; font-weight:bold }
-      .verdict-false { color:#FF4444; font-weight:bold }
-      .verdict-partial { color:#FFC107; font-weight:bold }
+         #result { margin-top:20px; text-align:left; }
+        .result-card { background:#1a1a1a; padding:15px; border-radius:8px; margin-bottom:15px; font-size:14px; line-height:1.6 }
+     .verdict-true { color:#00FF88; font-weight:bold }
+     .verdict-false { color:#FF4444; font-weight:bold }
         </style>
     </head>
     <body>
-        <h1>TruthGuard AI v2.7</h1>
-        <p>AI-Powered Data Cleaning & Fact Checking</p>
+        <h1>TruthGuard AI v2.8</h1>
+        <p>Batch Data Cleaning & Fact Checking</p>
 
-        <textarea id="claims" placeholder="Paste your data here. One claim per line."></textarea>
+        <textarea id="claims" placeholder="Paste multiple claims. One per line."></textarea>
         <br>
         <button class="btn green" onclick="cleanData()">Clean My Data</button>
 
@@ -95,18 +85,20 @@ def home():
         async function cleanData() {
             const data = document.getElementById('claims').value;
             if(!data) return alert('Paste some data first');
-            document.getElementById('result').style.display = 'block';
-            document.getElementById('result').innerText = 'Cleaning...';
+            document.getElementById('result').innerHTML = '<p>Cleaning...</p>';
             const res = await fetch('/clean', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({data:data})});
-            const json = await res.json();
-            let verdictClass = 'verdict-partial';
-            if(json.verdict === 'True') verdictClass = 'verdict-true';
-            if(json.verdict === 'False') verdictClass = 'verdict-false';
-            document.getElementById('result').innerHTML =
-                `<b>Original:</b> ${json.original}<br><br>
-                 <b>Cleaned:</b> ${json.cleaned}<br><br>
-                 <b>Verdict:</b> <span class="${verdictClass}">${json.verdict}</span><br><br>
-                 <b>Explanation:</b> ${json.explanation}`;
+            const jsonArray = await res.json();
+            let html = '';
+            jsonArray.forEach(item => {
+                let verdictClass = item.verdict === 'True'? 'verdict-true' : 'verdict-false';
+                html += `<div class="result-card">
+                    <b>Original:</b> ${item.original}<br><br>
+                    <b>Cleaned:</b> ${item.cleaned}<br><br>
+                    <b>Verdict:</b> <span class="${verdictClass}">${item.verdict}</span><br><br>
+                    <b>Explanation:</b> ${item.explanation}
+                </div>`;
+            });
+            document.getElementById('result').innerHTML = html;
         }
         function pay(amount, claims) {
           var handler = PaystackPop.setup({
@@ -127,9 +119,8 @@ def home():
 
 @app.post("/clean")
 def clean(req: CleanRequest, request: Request):
-    log_visit(request.client.host, req.data)
     try:
         result = clean_with_groq(req.data)
         return JSONResponse(content=result)
     except Exception as e:
-        return JSONResponse(content={"original": req.data, "cleaned": "", "verdict": "Error", "explanation": str(e)})
+        return JSONResponse(content=[{"original": req.data, "cleaned": "", "verdict": "Error", "explanation": str(e)}])
