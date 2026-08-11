@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-app = FastAPI(title="TruthGuard AI v2.6", version="2.6.0")
+app = FastAPI(title="TruthGuard AI v2.7", version="2.7.0")
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 VISITOR_LOG = "visitors.json"
@@ -27,11 +27,13 @@ def clean_with_groq(text):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     prompt = f"""You are TruthGuard AI, an expert data cleaner and fact-checker.
-    RULES:
-    1. Fix grammar and spelling in 'cleaned'
-    2. For 'verdict' you MUST choose only: True, False, or Partially True
-    3. Never say "inconclusive" or "unable to verify". Make your best judgment.
-    4. Return ONLY valid JSON. No other text. No markdown.
+    CRITICAL RULES:
+    1. 'cleaned' MUST contain the FACTUALLY CORRECT version. If the original is false, correct it in 'cleaned'.
+       Example: "Cats can fly" -> cleaned: "Cats cannot fly"
+    2. Fix grammar and spelling in 'cleaned'
+    3. For 'verdict' choose only: True, False, or Partially True
+    4. 'explanation' must explain why.
+    5. Return ONLY valid JSON. No other text.
 
     Format: {{"original": "...", "cleaned": "...", "verdict": "...", "explanation": "..."}}
 
@@ -40,44 +42,43 @@ def clean_with_groq(text):
     r = requests.post(url, headers=headers, json=payload, timeout=30)
     ai_response = r.json()["choices"][0]["message"]["content"]
 
-    # Extract JSON safely
     try:
         json_match = re.search(r'\{.*\}', ai_response, re.DOTALL)
         if json_match:
             return json.loads(json_match.group())
         else:
-            return {"original": text, "cleaned": text, "verdict": "Error", "explanation": "AI did not return valid JSON"}
+            return {"original": text, "cleaned": "AI Error", "verdict": "Error", "explanation": ai_response}
     except:
-        return {"original": text, "cleaned": text, "verdict": "Error", "explanation": ai_response}
+        return {"original": text, "cleaned": "AI Error", "verdict": "Error", "explanation": ai_response}
 
 @app.get("/", response_class=HTMLResponse)
 def home():
     return HTMLResponse(content="""
     <html>
     <head>
-        <title>TruthGuard AI v2.6</title>
+        <title>TruthGuard AI v2.7</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
             body { font-family: Arial; background: #0a0a0a; color: #fff; padding: 20px; text-align: center; }
             textarea { width: 90%; height: 200px; background: #1a1a1a; color: #fff; border: 1px solid #333; padding: 10px; border-radius: 8px; font-size:16px }
-        .btn { padding: 18px; border: none; border-radius: 12px; font-weight: bold; margin-top: 12px; cursor: pointer; width: 90%; font-size:18px }
-        .green { background: #00FF88; color: #000; }
-        .plan { background: #111; border: 2px solid #333; padding: 25px; border-radius: 12px; margin: 15px auto; width: 90%; }
-        .plan h3 { margin: 0; color: #00C3FF; font-size:22px }
-        .plan p { font-size:20px; margin:10px 0; }
-        .popular { border: 2px solid #00FF88; }
-        .badge { background:#00FF88; color:#000; padding:5px 10px; border-radius:20px; font-size:12px; font-weight:bold }
+       .btn { padding: 18px; border: none; border-radius: 12px; font-weight: bold; margin-top: 12px; cursor: pointer; width: 90%; font-size:18px }
+       .green { background: #00FF88; color: #000; }
+       .plan { background: #111; border: 2px solid #333; padding: 25px; border-radius: 12px; margin: 15px auto; width: 90%; }
+       .plan h3 { margin: 0; color: #00C3FF; font-size:22px }
+       .plan p { font-size:20px; margin:10px 0; }
+       .popular { border: 2px solid #00FF88; }
+       .badge { background:#00FF88; color:#000; padding:5px 10px; border-radius:20px; font-size:12px; font-weight:bold }
          #result { background:#1a1a1a; padding:15px; border-radius:8px; margin-top:20px; text-align:left; white-space:pre-wrap; display:none; font-size:14px; line-height:1.6 }
-       .verdict-true { color:#00FF88; font-weight:bold }
-       .verdict-false { color:#FF4444; font-weight:bold }
-       .verdict-partial { color:#FFC107; font-weight:bold }
+      .verdict-true { color:#00FF88; font-weight:bold }
+      .verdict-false { color:#FF4444; font-weight:bold }
+      .verdict-partial { color:#FFC107; font-weight:bold }
         </style>
     </head>
     <body>
-        <h1>TruthGuard AI v2.6</h1>
+        <h1>TruthGuard AI v2.7</h1>
         <p>AI-Powered Data Cleaning & Fact Checking</p>
 
-        <textarea id="claims" placeholder="Paste your data here. One claim per line. Example: Cats can fly"></textarea>
+        <textarea id="claims" placeholder="Paste your data here. One claim per line."></textarea>
         <br>
         <button class="btn green" onclick="cleanData()">Clean My Data</button>
 
