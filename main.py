@@ -19,82 +19,68 @@ class BatchRequest(BaseModel):
 def log_visit(ip: str, claim: str, endpoint: str):
     log_entry = {"time": datetime.datetime.now().isoformat(), "ip": ip, "endpoint": endpoint, "claim": claim}
     try:
-        with open(VISITOR_LOG, "r") as f: logs = json.load(f)
-    except: logs = []
-    logs.append(log_entry)
-    with open(VISITOR_LOG, "w") as f: json.dump(logs, f, indent=2)
-
-async def fact_check_single(claim: str):
-    prompt = f"""You are an expert fact-checker. 
-STRICT RULES: If the claim is scientifically/biologically FALSE, verdict MUST be CONTRADICTED.
-Claim: '{claim}'. Respond ONLY in valid JSON with keys: verdict, explanation. 
-Verdict must be: GROUNDED, CONTRADICTED, or UNCERTAIN."""
-    
-    res = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-        json={"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "temperature": 0}
-    )
-    ai_text = res.json()["choices"][0]["message"]["content"]
-    ai_text = ai_text.replace("```json", "").replace("```", "")
-    return json.loads(ai_text.strip())
+        with open(VISITOR_LOG, "a") as f:
+            f.write(json.dumps(log_entry) + "\n")
+    except:
+        pass
 
 @app.get("/", response_class=HTMLResponse)
 def home():
-    return """
-    <!DOCTYPE html><html><head><title>TruthGuard AI</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-    body{font-family:Arial;background:#0f172a;color:white;text-align:center;padding:20px}
-    h1{font-size:36px;color:#38bdf8} 
-   .box{background:#1e293b;padding:30px;border-radius:12px;max-width:500px;margin:40px auto}
-    input[type=file]{margin:20px 0;color:white}
-    button{background:#38bdf8;color:#0f172a;padding:14px 28px;border:none;border-radius:10px;font-weight:bold;font-size:16px;cursor:pointer}
-    button:hover{background:#0ea5e9}
-   .note{font-size:12px;color:#94a3b8;margin-top:15px}
-    </style></head><body>
-    <h1>TruthGuard AI v2.3</h1>
-    <p>Upload your CSV → Download Clean CSV</p>
-    <div class="box">
-      <form action="/upload-csv" method="post" enctype="multipart/form-data">
-        <p>CSV must have a column named: <b>claim</b></p>
-        <input type="file" name="file" accept=".csv" required><br>
-        <button type="submit">Clean My Data</button>
-      </form>
-      <p class="note">Example: claim\\nNigeria is in Africa\\nThe moon is cheese</p>
-    </div>
-    <a href="/docs" style="color:#38bdf8">API Docs</a>
-    </body></html>"""
+    return HTMLResponse(content="""
+    <html>
+    <head>
+        <title>TruthGuard AI v2.3</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body { font-family: Arial; background: #0a0a0a; color: #fff; padding: 20px; text-align: center; }
+            textarea { width: 90%; height: 200px; background: #1a1a1a; color: #fff; border: 1px solid #333; padding: 10px; border-radius: 8px; }
+            button { background: #00FF88; color: #000; padding: 12px 20px; border: none; border-radius: 8px; font-weight: bold; margin-top: 10px; cursor: pointer; width: 90%; }
+        </style>
+    </head>
+    <body>
+        <h1>TruthGuard AI v2.3</h1>
+        <p>Upload CSV or paste claims to verify</p>
+        
+        <textarea id="claims" placeholder="claim&#10;Nigeria is in Africa&#10;The moon is cheese"></textarea>
+        <br>
+        <button onclick="cleanData()">Clean My Data</button>
+        
+        <!-- PAYMENT BUTTON START -->
+        <br><br>
+        <button id="payBtn" style="background:#00C3FF;color:#000;padding:15px;border:none;border-radius:8px;font-weight:bold;width:90%;font-size:16px">
+          Pay ₦10,000 for 1000 Claims
+        </button>
 
-@app.post("/clean-dataset")
-async def clean_dataset(request: BatchRequest, req: Request):
-    log_visit(req.client.host, f"{len(request.claims)} claims", "batch")
-    results = []; grounded_claims = []; contradicted = 0; uncertain = 0
-    for claim in request.claims:
-        result = await fact_check_single(claim)
-        results.append({"claim": claim, "verdict": result["verdict"], "explanation": result["explanation"]})
-        if result["verdict"] == "GROUNDED": grounded_claims.append(claim)
-        elif result["verdict"] == "CONTRADICTED": contradicted += 1
-        else: uncertain += 1
-    return {"total_processed": len(request.claims), "grounded_count": len(grounded_claims), "contradicted_count": contradicted, "uncertain_count": uncertain, "clean_dataset": grounded_claims, "full_report": results}
+        <script src="https://js.paystack.co/v1/inline.js"></script>
+        <script>
+          document.getElementById('payBtn').onclick = function() {
+            PaystackPop.setup({
+              key: 'pk_test_b89a61386411b3b47b79d402555417e1b333261c',
+              email: 'test@example.com',
+              amount: 1000000, // 10000 * 100 = kobo
+              currency: 'NGN',
+              ref: 'TG_' + Date.now(),
+              callback: function(response){ 
+                alert('Payment Successful! Ref: ' + response.reference + '\n\nWe will unlock 1000 claims for you'); 
+              }
+            }).openIframe();
+          }
+        </script>
+        <!-- PAYMENT BUTTON END -->
+        
+        <p style="margin-top:20px">Example: claim<br>Nigeria is in Africa<br>The moon is cheese</p>
+        <a href="/docs">API Docs</a>
 
-@app.post("/upload-csv")
-async def upload_csv(req: Request, file: UploadFile = File(...)):
-    log_visit(req.client.host, f"CSV: {file.filename}", "csv_upload")
-    contents = await file.read()
-    csv_reader = csv.DictReader(io.StringIO(contents.decode('utf-8')))
-    claims = [row['claim'] for row in csv_reader]
-    batch_size = 30
-    clean_rows = []
-    for i in range(0, len(claims), batch_size):
-        batch = claims[i:i+batch_size]
-        result = await clean_dataset(BatchRequest(claims=batch), req)
-        for item in result["full_report"]:
-            if item["verdict"] == "GROUNDED":
-                clean_rows.append({"claim": item["claim"], "verdict": item["verdict"]})
-    output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=["claim", "verdict"])
-    writer.writeheader()
-    writer.writerows(clean_rows)
-    output.seek(0)
-    return StreamingResponse(output, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=clean_data.csv"})
+        <script>
+        function cleanData() {
+            alert('Cleaning... Connect this to your API later');
+        }
+        </script>
+    </body>
+    </html>
+    """)
+
+@app.post("/batch-verify")
+def batch_verify(req: BatchRequest, request: Request):
+    log_visit(request.client.host, str(req.claims), "/batch-verify")
+    return {"status": "received", "count": len(req.claims)}
