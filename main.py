@@ -2,59 +2,67 @@ import os
 import requests
 import json
 import datetime
+import re
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-app = FastAPI(title="TruthGuard AI v2.4", version="2.4.0")
+app = FastAPI(title="TruthGuard AI v2.5", version="2.5.0")
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-VISITOR_LOG = "visitors.json"
 
 class CleanRequest(BaseModel):
     data: str
 
-def log_visit(ip: str, data: str):
-    log_entry = {"time": datetime.datetime.now().isoformat(), "ip": ip, "data": data}
-    try:
-        with open(VISITOR_LOG, "a") as f:
-            f.write(json.dumps(log_entry) + "\n")
-    except:
-        pass
-
 def clean_with_groq(text):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    prompt = f"You are a data cleaning and fact-checking AI. Clean grammar, fix errors, and fact-check this. Return JSON with fields: original, cleaned, verdict, explanation.\n\nData: {text}"
+    prompt = f"""You are a data cleaning and fact-checking AI. 
+    For the input text, return ONLY valid JSON with these exact keys: original, cleaned, verdict, explanation.
+    No extra words. No markdown.
+    
+    Input: {text}"""
     payload = {"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "temperature": 0.1}
     r = requests.post(url, headers=headers, json=payload, timeout=30)
-    return r.json()["choices"][0]["message"]["content"]
+    ai_response = r.json()["choices"][0]["message"]["content"]
+    
+    # Try to extract JSON even if AI adds extra text
+    try:
+        json_match = re.search(r'\{.*\}', ai_response, re.DOTALL)
+        if json_match:
+            return json.loads(json_match.group())
+        else:
+            return {"original": text, "cleaned": text, "verdict": "Error", "explanation": ai_response}
+    except:
+        return {"original": text, "cleaned": text, "verdict": "Error", "explanation": ai_response}
 
 @app.get("/", response_class=HTMLResponse)
 def home():
     return HTMLResponse(content="""
     <html>
     <head>
-        <title>TruthGuard AI v2.4</title>
+        <title>TruthGuard AI v2.5</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
             body { font-family: Arial; background: #0a0a0a; color: #fff; padding: 20px; text-align: center; }
             textarea { width: 90%; height: 200px; background: #1a1a1a; color: #fff; border: 1px solid #333; padding: 10px; border-radius: 8px; font-size:16px }
-         .btn { padding: 18px; border: none; border-radius: 12px; font-weight: bold; margin-top: 12px; cursor: pointer; width: 90%; font-size:18px }
-         .green { background: #00FF88; color: #000; }
-         .plan { background: #111; border: 2px solid #333; padding: 25px; border-radius: 12px; margin: 15px auto; width: 90%; }
-         .plan h3 { margin: 0; color: #00C3FF; font-size:22px }
-         .plan p { font-size:20px; margin:10px 0; }
-         .popular { border: 2px solid #00FF88; }
-         .badge { background:#00FF88; color:#000; padding:5px 10px; border-radius:20px; font-size:12px; font-weight:bold }
-          #result { background:#1a1a1a; padding:15px; border-radius:8px; margin-top:20px; text-align:left; white-space:pre-wrap; display:none }
+        .btn { padding: 18px; border: none; border-radius: 12px; font-weight: bold; margin-top: 12px; cursor: pointer; width: 90%; font-size:18px }
+        .green { background: #00FF88; color: #000; }
+        .plan { background: #111; border: 2px solid #333; padding: 25px; border-radius: 12px; margin: 15px auto; width: 90%; }
+        .plan h3 { margin: 0; color: #00C3FF; font-size:22px }
+        .plan p { font-size:20px; margin:10px 0; }
+        .popular { border: 2px solid #00FF88; }
+        .badge { background:#00FF88; color:#000; padding:5px 10px; border-radius:20px; font-size:12px; font-weight:bold }
+         #result { background:#1a1a1a; padding:15px; border-radius:8px; margin-top:20px; text-align:left; white-space:pre-wrap; display:none; font-size:14px }
+        .verdict-true { color:#00FF88 }
+        .verdict-false { color:#FF4444 }
         </style>
     </head>
     <body>
-        <h1>TruthGuard AI v2.4</h1>
+        <h1>TruthGuard AI v2.5</h1>
         <p>AI-Powered Data Cleaning & Fact Checking</p>
 
-        <textarea id="claims" placeholder="Paste your data here, one row per line"></textarea>
+        <textarea id="claims" placeholder="Paste your data here. One claim per line. Example: Cats can fly"></textarea>
         <br>
         <button class="btn green" onclick="cleanData()">Clean My Data</button>
         
@@ -75,7 +83,12 @@ def home():
             document.getElementById('result').innerText = 'Cleaning...';
             const res = await fetch('/clean', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({data:data})});
             const json = await res.json();
-            document.getElementById('result').innerText = JSON.stringify(json, null, 2);
+            let verdictClass = json.verdict === 'True'? 'verdict-true' : 'verdict-false';
+            document.getElementById('result').innerHTML = 
+                `<b>Original:</b> ${json.original}<br><br>
+                 <b>Cleaned:</b> ${json.cleaned}<br><br>
+                 <b>Verdict:</b> <span class="${verdictClass}">${json.verdict}</span><br><br>
+                 <b>Explanation:</b> ${json.explanation}`;
         }
         function pay(amount, claims) {
           var handler = PaystackPop.setup({
@@ -96,9 +109,8 @@ def home():
 
 @app.post("/clean")
 def clean(req: CleanRequest, request: Request):
-    log_visit(request.client.host, req.data)
     try:
         result = clean_with_groq(req.data)
-        return JSONResponse(content=json.loads(result))
+        return JSONResponse(content=result)
     except Exception as e:
-        return JSONResponse(content={"error": str(e)})
+        return JSONResponse(content={"original": req.data, "cleaned": "", "verdict": "Error", "explanation": str(e)})
