@@ -153,4 +153,4 @@ def clean(req: CleanRequest, request: Request):
         result = clean_with_groq(req.data)
         return JSONResponse(content=result)
     except Exception as e:
-        return JSONResponse(content=[{"original": req.data, "cleaned": "", "verdict": "Error", "explanation": str(e)}]
+        return JSONResponse(content=[{"original": req.data, "cleaned": "", "verdict": "Error", "explanation": str(e)}])
