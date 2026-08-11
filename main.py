@@ -7,65 +7,78 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
-app = FastAPI(title="TruthGuard AI v2.8", version="2.8.0")
+app = FastAPI(title="TruthGuard AI v2.9", version="2.9.0")
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 class CleanRequest(BaseModel):
     data: str
 
+def parse_ai_response(text):
+    """Handles [{}][{}] or [{}, {}] formats"""
+    try:
+        # Try normal JSON array first
+        return json.loads(text)
+    except:
+        pass
+    
+    # Extract all {...} objects and combine them
+    objects = re.findall(r'\{.*?\}', text, re.DOTALL)
+    results = []
+    for obj_str in objects:
+        try:
+            results.append(json.loads(obj_str))
+        except:
+            continue
+    
+    if results:
+        return results
+    
+    return [{"original": text, "cleaned": "Parse Error", "verdict": "Error", "explanation": "Could not parse AI response"}]
+
 def clean_with_groq(text):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    prompt = f"""You are TruthGuard AI. Process each line separately.
-    CRITICAL RULES:
-    1. Return a JSON ARRAY. Example: [{{"original":"...", "cleaned":"...", "verdict":"...", "explanation":"..."}}]
-    2. 'cleaned' MUST be the FACTUALLY CORRECT version. Correct false claims.
-    3. 'verdict' = True, False, or Partially True
-    4. Fix grammar in 'cleaned'
-    5. Return ONLY the JSON array. No other text. No ```json
+    prompt = f"""Process each line below. Return ONE JSON array with objects for each line.
+    Format: [{{"original":"...", "cleaned":"...", "verdict":"...", "explanation":"..."}}]
+    RULES: 
+    1. 'cleaned' MUST be factually correct. Fix lies.
+    2. 'verdict' = True, False, or Partially True
+    3. No markdown, no extra text, just the JSON array.
 
-    Input lines:
+    Lines:
     {text}"""
     payload = {"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0}
     r = requests.post(url, headers=headers, json=payload, timeout=60)
     ai_response = r.json()["choices"][0]["message"]["content"]
-
-    try:
-        # Extract JSON array
-        json_match = re.search(r'\[.*\]', ai_response, re.DOTALL)
-        if json_match:
-            return json.loads(json_match.group())
-        else:
-            return [{"original": text, "cleaned": "Parse Error", "verdict": "Error", "explanation": ai_response}]
-    except:
-        return [{"original": text, "cleaned": "Parse Error", "verdict": "Error", "explanation": ai_response}]
+    return parse_ai_response(ai_response)
 
 @app.get("/", response_class=HTMLResponse)
 def home():
     return HTMLResponse(content="""
     <html>
     <head>
-        <title>TruthGuard AI v2.8</title>
+        <title>TruthGuard AI v2.9</title>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
             body { font-family: Arial; background: #0a0a0a; color: #fff; padding: 20px; text-align: center; }
             textarea { width: 90%; height: 200px; background: #1a1a1a; color: #fff; border: 1px solid #333; padding: 10px; border-radius: 8px; font-size:16px }
-       .btn { padding: 18px; border: none; border-radius: 12px; font-weight: bold; margin-top: 12px; cursor: pointer; width: 90%; font-size:18px }
-       .green { background: #00FF88; color: #000; }
-       .plan { background: #111; border: 2px solid #333; padding: 25px; border-radius: 12px; margin: 15px auto; width: 90%; }
-       .plan h3 { margin: 0; color: #00C3FF; font-size:22px }
-       .plan p { font-size:20px; margin:10px 0; }
-       .popular { border: 2px solid #00FF88; }
-       .badge { background:#00FF88; color:#000; padding:5px 10px; border-radius:20px; font-size:12px; font-weight:bold }
+      .btn { padding: 18px; border: none; border-radius: 12px; font-weight: bold; margin-top: 12px; cursor: pointer; width: 90%; font-size:18px }
+      .green { background: #00FF88; color: #000; }
+      .plan { background: #111; border: 2px solid #333; padding: 25px; border-radius: 12px; margin: 15px auto; width: 90%; }
+      .plan h3 { margin: 0; color: #00C3FF; font-size:22px }
+      .plan p { font-size:20px; margin:10px 0; }
+      .popular { border: 2px solid #00FF88; }
+      .badge { background:#00FF88; color:#000; padding:5px 10px; border-radius:20px; font-size:12px; font-weight:bold }
          #result { margin-top:20px; text-align:left; }
-        .result-card { background:#1a1a1a; padding:15px; border-radius:8px; margin-bottom:15px; font-size:14px; line-height:1.6 }
-     .verdict-true { color:#00FF88; font-weight:bold }
-     .verdict-false { color:#FF4444; font-weight:bold }
+       .result-card { background:#1a1a1a; padding:15px; border-radius:8px; margin-bottom:15px; font-size:14px; line-height:1.6; border-left: 4px solid #00C3FF }
+    .verdict-true { color:#00FF88; font-weight:bold }
+    .verdict-false { color:#FF4444; font-weight:bold }
+    .verdict-partial { color:#FFC107; font-weight:bold }
         </style>
     </head>
     <body>
-        <h1>TruthGuard AI v2.8</h1>
+        <h1>TruthGuard AI v2.9</h1>
         <p>Batch Data Cleaning & Fact Checking</p>
 
         <textarea id="claims" placeholder="Paste multiple claims. One per line."></textarea>
@@ -90,7 +103,9 @@ def home():
             const jsonArray = await res.json();
             let html = '';
             jsonArray.forEach(item => {
-                let verdictClass = item.verdict === 'True'? 'verdict-true' : 'verdict-false';
+                let verdictClass = 'verdict-partial';
+                if(item.verdict === 'True') verdictClass = 'verdict-true';
+                if(item.verdict === 'False') verdictClass = 'verdict-false';
                 html += `<div class="result-card">
                     <b>Original:</b> ${item.original}<br><br>
                     <b>Cleaned:</b> ${item.cleaned}<br><br>
