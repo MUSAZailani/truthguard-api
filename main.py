@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 
-app = FastAPI(title="TruthGuard AI v4.3")
+app = FastAPI(title="TruthGuard AI v4.4")
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 CREDITS = 1000
@@ -37,8 +37,8 @@ def clean_with_groq(text):
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     
-    # REVERTED: This prompt works for any data - facts OR products
-    prompt = f"""Process each line. Return ONE JSON array. RULES: 'cleaned' MUST fix typos and grammar. 'verdict' = True, False, or Partially True based on facts. Format: [{{"original":"...", "cleaned":"...", "verdict":"...", "explanation":"..."}}] Lines: {text}"""
+    # FIXED: Now it corrects facts in the 'cleaned' column too
+    prompt = f"""Process each line. Return ONE JSON array. RULES: 'cleaned' MUST fix grammar, typos AND correct any false information to make it factually true. 'verdict' = True, False, or Partially True based on the ORIGINAL claim. Format: [{{"original":"...", "cleaned":"...", "verdict":"...", "explanation":"..."}}] Lines: {text}"""
     
     payload = {"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "temperature": 0.0}
     r = requests.post(url, headers=headers, json=payload, timeout=120)
@@ -60,19 +60,19 @@ def get_style():
     return """
     <style>
         body { font-family: Arial; background: #0a0a0a; color: #fff; padding: 20px; text-align: center; }
-    .nav { display:flex; justify-content:center; gap:40px; margin-bottom:20px; border-bottom:2px solid #00FF88; padding-bottom:10px }
-    .nav a { color:#888; text-decoration:none; font-weight:bold; font-size:18px }
-    .nav a.active { color:#00FF88 }
+     .nav { display:flex; justify-content:center; gap:40px; margin-bottom:20px; border-bottom:2px solid #00FF88; padding-bottom:10px }
+     .nav a { color:#888; text-decoration:none; font-weight:bold; font-size:18px }
+     .nav a.active { color:#00FF88 }
         h1 { color:#00FF88; font-size:42px; margin:10px 0 }
-    .credit-bar { background:#111; padding:15px; border-radius:12px; margin:20px auto; border:2px solid #00FF88; max-width:400px }
-    .credit-bar h2 { color:#00FF88; margin:0 }
+     .credit-bar { background:#111; padding:15px; border-radius:12px; margin:20px auto; border:2px solid #00FF88; max-width:400px }
+     .credit-bar h2 { color:#00FF88; margin:0 }
         textarea { width: 90%; height: 150px; background: #1a1a1a; color: #fff; border: 1px solid #333; padding: 10px; border-radius: 8px; font-size:16px; max-width:600px }
-    .btn { padding: 18px; border: none; border-radius: 12px; font-weight: bold; margin: 8px; cursor: pointer; width: 90%; font-size:18px; max-width:400px }
-    .green { background: #00FF88; color: #000; }.blue { background: #00C3FF; color: #000; }.yellow { background:#FFC107;color:#000 }.purple { background:#A855F7;color:#fff }
-    .plan { background: #111; border: 2px solid #333; padding: 25px; border-radius: 12px; margin: 15px auto; width: 90%; max-width:400px; text-align:left }
+     .btn { padding: 18px; border: none; border-radius: 12px; font-weight: bold; margin: 8px; cursor: pointer; width: 90%; font-size:18px; max-width:400px }
+     .green { background: #00FF88; color: #000; }.blue { background: #00C3FF; color: #000; }.yellow { background:#FFC107;color:#000 }.purple { background:#A855F7;color:#fff }
+     .plan { background: #111; border: 2px solid #333; padding: 25px; border-radius: 12px; margin: 15px auto; width: 90%; max-width:400px; text-align:left }
         #result { margin-top:20px; text-align:left; max-width:800px; margin-left:auto; margin-right:auto }
-    .result-card { background:#1a1a1a; padding:15px; border-radius:8px; margin-bottom:15px; font-size:14px; line-height:1.6; border-left: 4px solid #00C3FF }
-    .verdict-true { color:#00FF88; font-weight:bold }.verdict-false { color:#FF4444; font-weight:bold }.verdict-partial { color:#FFC107; font-weight:bold }
+     .result-card { background:#1a1a1a; padding:15px; border-radius:8px; margin-bottom:15px; font-size:14px; line-height:1.6; border-left: 4px solid #00C3FF }
+     .verdict-true { color:#00FF88; font-weight:bold }.verdict-false { color:#FF4444; font-weight:bold }.verdict-partial { color:#FFC107; font-weight:bold }
     </style>
     """
 
@@ -169,7 +169,6 @@ def results_page():
             document.getElementById('result').innerHTML = html;
         }} else {{ document.getElementById('result').innerHTML = '<p>No cleaned data yet. Go to Home and clean first.</p>'; }}
 
-        // KEEPS THE FIX: Clean Data Only as 1 column
         function downloadCleanOnly() {{
             if(lastResults.length === 0) return alert('No data to download');
             let csv = 'Cleaned_Data\\n';
