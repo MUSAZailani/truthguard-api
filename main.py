@@ -2,6 +2,7 @@ import os
 import io
 import asyncio
 import gc
+import json
 import traceback
 import pandas as pd
 from fastapi import FastAPI, UploadFile, File, Form, Request, HTTPException
@@ -16,7 +17,7 @@ import uvicorn
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not GROQ_API_KEY:
-    raise Exception("GROQ_API_KEY environment variable not set!") # <-- This will tell us
+    raise Exception("GROQ_API_KEY environment variable not set!")
 
 MODEL = "llama-3.1-8b-instant"
 CREDITS_PER_50_ROWS = 1
@@ -24,15 +25,15 @@ CHUNK_SIZE = 50
 RETRY_DELAY = 2
 
 client = Groq(api_key=GROQ_API_KEY)
-app = FastAPI(title="TruthGuard AI v4.4")
+app = FastAPI(title="TruthGuard AI v4.5")
 templates = Jinja2Templates(directory="templates")
 user_credits = {"free_user": 500}
 
 SYSTEM_PROMPT = """You are TruthGuard AI. Your job is to clean text and fact-check it.
-For each input line, return JSON with 4 fields:
+For each input line, return a JSON array of objects. Each object has 4 keys:
 "original", "cleaned", "verdict", "explanation"
 Verdict must be one of: True, False, Partially True
-Return ONLY a JSON array. No extra text.
+Return ONLY the JSON array. No extra text, no markdown.
 """
 
 async def process_chunk(chunk: list) -> list:
@@ -42,15 +43,25 @@ async def process_chunk(chunk: list) -> list:
         {"role": "user", "content": f"Process these lines:\n{data_text}"}
     ]
     try:
-        response = client.chat.completions.create(model=MODEL, messages=messages, temperature=0)
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            temperature=0,
+            response_format={"type": "json_object"}
+        )
         content = response.choices[0].message.content
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0]
-        return eval(content) if isinstance(eval(content), list) else [eval(content)]
+        # Clean ```json markdown if Groq adds it
+        content = content.strip().replace("```json", "").replace("```", "")
+        data = json.loads(content)
+        # Groq sometimes wraps in {"data": [...]}
+        if isinstance(data, dict) and "data" in data:
+            data = data["data"]
+        return data if isinstance(data, list) else [data]
     except RateLimitError:
         await asyncio.sleep(RETRY_DELAY)
         return await process_chunk(chunk)
     except Exception as e:
+        print(f"Chunk Error: {e}")
         return [{"original": r, "cleaned": r, "verdict": "Error", "explanation": str(e)} for r in chunk]
 
 async def clean_and_verify_all(data: list) -> list:
@@ -64,11 +75,8 @@ async def clean_and_verify_all(data: list) -> list:
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    try:
-        credits = user_credits.get("free_user", 0)
-        return templates.TemplateResponse("index.html", {"request": request, "credits": credits})
-    except Exception as e:
-        return HTMLResponse(f"Template Error: {str(e)}")
+    credits = user_credits.get("free_user", 0)
+    return templates.TemplateResponse("index.html", {"request": request, "credits": credits})
 
 @app.post("/process")
 async def process_data(request: Request, data: str = Form(None), file: UploadFile = File(None)):
@@ -98,7 +106,7 @@ async def process_data(request: Request, data: str = Form(None), file: UploadFil
         gc.collect()
         return StreamingResponse(io.StringIO(csv), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=truthguard_cleaned.csv"})
     except Exception as e:
-        print(traceback.format_exc()) # <-- This prints full error to Railway logs
+        print(traceback.format_exc())
         return JSONResponse({"error": str(e)}, status_code=500)
 
 if __name__ == "__main__":
