@@ -1,6 +1,8 @@
 fastapi
 uvicorn[standard]
-requests
-pydantic
-reportlab
 python-multipart
+jinja2
+groq
+pandas
+openpyxl
+reportlab
