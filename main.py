@@ -11,8 +11,8 @@ import os
 app = FastAPI(title="TruthGuard AI")
 
 DB_FILE = "users.json"
-NEW_USER_CREDITS = 500 # STRICTLY FOR NEW CUSTOMERS
-PAYSTACK_LIVE_KEY = "sk_live_YOUR_LIVE_KEY_HERE" # REPLACE WITH YOUR LIVE KEY
+NEW_USER_CREDITS = 500
+PAYSTACK_LIVE_KEY = "sk_live_YOUR_LIVE_KEY_HERE"
 
 def load_users():
     if os.path.exists(DB_FILE):
@@ -54,7 +54,6 @@ def clean_text(text):
     return text.capitalize()
 
 def smart_clean(df: pd.DataFrame):
-    # FAST FOR 5000+ ROWS: vectorized
     df = df.astype(str).apply(lambda x: x.str.strip())
     for col in df.columns:
         df[col] = df[col].apply(clean_text)
@@ -76,11 +75,12 @@ input,textarea{width:100%;padding:14px;margin:12px 0;border-radius:10px;border:1
 .card{background:#1a1a1a;padding:25px;margin:15px auto;border-radius:15px}
 </style>"""
 
-HOME_HTML = f"""<!DOCTYPE html><html><head><title>TruthGuard AI</title><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}
+def HOME_PAGE(credits):
+    return f"""<!DOCTYPE html><html><head><title>TruthGuard AI</title><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}
 </head><body><div class="container">
 <div class="shield">🛡️</div>
 <h1 style="text-align:center">TruthGuard AI</h1>
-<div style="text-align:center"><div class="credits">Credits: {{credits}}</div></div>
+<div style="text-align:center"><div class="credits">Credits: {credits}</div></div>
 <p style="text-align:center;color:#aaa;font-size:1.2em">AI Powered CSV Cleaning. Handles 5000+ rows instantly.</p>
 <div style="margin-top:30px">
 <a href="/clean" class="btn">CLEAN DATA</a>
@@ -88,24 +88,26 @@ HOME_HTML = f"""<!DOCTYPE html><html><head><title>TruthGuard AI</title><meta nam
 </div>
 </div></body></html>"""
 
-CLEAN_HTML = f"""<!DOCTYPE html><html><head><title>Clean Data - TruthGuard AI</title><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}
+def CLEAN_PAGE(credits, message="", msg_class="", download_link="", disabled=""):
+    return f"""<!DOCTYPE html><html><head><title>Clean Data - TruthGuard AI</title><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}
 </head><body><div class="container">
 <div class="shield">🛡️</div>
 <h1 style="text-align:center">Clean Data</h1>
-<div style="text-align:center"><div class="credits">Credits: {{credits}}</div></div>
-<p class="{{msg_class}}">{{message}}</p>
-{{download_link}}
+<div style="text-align:center"><div class="credits">Credits: {credits}</div></div>
+<p class="{msg_class}">{message}</p>
+{download_link}
 <form method="post" enctype="multipart/form-data">
-<label><b>Upload CSV/TXT:</b></label><input type="file" name="file" accept=".csv,.txt" {{disabled}}>
-<label><b>Or Paste Data:</b></label><textarea name="text_data" rows="10" placeholder="Paste 5000 rows here..." {{disabled}}></textarea>
-<button type="submit" class="btn" {{disabled}}>CLEAN DATA</button>
+<label><b>Upload CSV/TXT:</b></label><input type="file" name="file" accept=".csv,.txt" {disabled}>
+<label><b>Or Paste Data:</b></label><textarea name="text_data" rows="10" placeholder="Paste 5000 rows here..." {disabled}></textarea>
+<button type="submit" class="btn" {disabled}>CLEAN DATA</button>
 </form><br><a href="/" style="color:#00ff88">← Back Home</a></div></body></html>"""
 
-PRICING_HTML = f"""<!DOCTYPE html><html><head><title>Pricing - TruthGuard AI</title><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}
+def PRICING_PAGE(credits):
+    return f"""<!DOCTYPE html><html><head><title>Pricing - TruthGuard AI</title><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}
 </head><body><div class="container">
 <div class="shield">🛡️</div>
 <h1 style="text-align:center">Buy Credits</h1>
-<div style="text-align:center"><div class="credits">Credits: {{credits}}</div></div>
+<div style="text-align:center"><div class="credits">Credits: {credits}</div></div>
 <div class="card">
 <h2 style="text-align:center">100 Credits - $10</h2>
 <p style="text-align:center;color:#aaa">1 Credit = 1 Row Cleaned</p>
@@ -122,7 +124,7 @@ PRICING_HTML = f"""<!DOCTYPE html><html><head><title>Pricing - TruthGuard AI</ti
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     session_id = get_session(request)
-    response = HTMLResponse(HOME_HTML.format(credits=get_credits(session_id)))
+    response = HTMLResponse(HOME_PAGE(get_credits(session_id)))
     response.set_cookie("tg_session", session_id)
     return response
 
@@ -132,7 +134,7 @@ async def clean_page(request: Request):
     credits = get_credits(session_id)
     disabled = "disabled" if credits <= 0 else ""
     message = "Kindly buy credits to continue" if credits <= 0 else ""
-    response = HTMLResponse(CLEAN_HTML.format(credits=credits, message=message, msg_class="error" if credits <= 0 else "", download_link="", disabled=disabled))
+    response = HTMLResponse(CLEAN_PAGE(credits, message, "error" if credits <= 0 else "", disabled))
     response.set_cookie("tg_session", session_id)
     return response
 
@@ -142,10 +144,10 @@ async def clean_data(request: Request, file: UploadFile = File(None), text_data:
     credits = get_credits(session_id)
     
     if credits <= 0:
-        return HTMLResponse(CLEAN_HTML.format(credits=0, message="Kindly buy credits to continue", msg_class="error", download_link="", disabled="disabled"))
+        return HTMLResponse(CLEAN_PAGE(0, "Kindly buy credits to continue", "error", "", "disabled"))
     
     if not file and not text_data:
-        return HTMLResponse(CLEAN_HTML.format(credits=credits, message="Please upload a file or paste data first", msg_class="error", download_link="", disabled=""))
+        return HTMLResponse(CLEAN_PAGE(credits, "Please upload a file or paste data first", "error", "", ""))
     
     try:
         if file and file.filename: df = pd.read_csv(file.file, header=None, names=["data"], on_bad_lines='skip')
@@ -153,12 +155,11 @@ async def clean_data(request: Request, file: UploadFile = File(None), text_data:
         
         rows = len(df)
         
-        # BLOCK IF NOT ENOUGH CREDITS
         if credits < rows:
-            return HTMLResponse(CLEAN_HTML.format(credits=credits, message=f"Not enough credits. This will cost {rows} credits. You have {credits}.", msg_class="error", download_link="", disabled=""))
+            return HTMLResponse(CLEAN_PAGE(credits, f"Not enough credits. This will cost {rows} credits. You have {credits}.", "error", "", ""))
         
         df = smart_clean(df)
-        use_credits(session_id, rows) # CHARGE 1 CREDIT PER ROW
+        use_credits(session_id, rows)
         
         output = io.StringIO()
         df.to_csv(output, index=False, header=False)
@@ -166,21 +167,20 @@ async def clean_data(request: Request, file: UploadFile = File(None), text_data:
         
         download_link = f'<a href="/download/{b64_data}" class="download">⬇️ Download Cleaned CSV - {len(df)} rows</a>'
         message = f"✅ Cleaned {rows} rows! {rows} Credits Used. You have {get_credits(session_id)} left."
-        return HTMLResponse(CLEAN_HTML.format(credits=get_credits(session_id), message=message, msg_class="success", download_link=download_link, disabled=""))
+        return HTMLResponse(CLEAN_PAGE(get_credits(session_id), message, "success", download_link, ""))
     except Exception as e:
-        return HTMLResponse(CLEAN_HTML.format(credits=credits, message=f"Error: {str(e)}", msg_class="error", download_link="", disabled=""))
+        return HTMLResponse(CLEAN_PAGE(credits, f"Error: {str(e)}", "error", "", ""))
 
 @app.get("/pricing", response_class=HTMLResponse)
 async def pricing(request: Request):
     session_id = get_session(request)
-    response = HTMLResponse(PRICING_HTML.format(credits=get_credits(session_id)))
+    response = HTMLResponse(PRICING_PAGE(get_credits(session_id)))
     response.set_cookie("tg_session", session_id)
     return response
 
 @app.post("/pay")
 async def pay(request: Request, plan: str = Form(...), method: str = Form(...)):
     session_id = get_session(request)
-    # TODO: CONNECT REAL PAYSTACK HERE WITH LIVE KEY
     USERS[session_id] = get_credits(session_id) + int(plan)
     save_users(USERS)
     return RedirectResponse(url="/pricing", status_code=303)
