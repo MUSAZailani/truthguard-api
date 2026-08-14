@@ -1,8 +1,5 @@
 fastapi
 uvicorn[standard]
-python-multipart
 jinja2
-groq
+python-multipart
 pandas
-openpyxl
-reportlab
