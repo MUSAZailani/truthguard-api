@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TruthGuard - Clean & Fact-Check Data</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <style>
+        body { background: #0d1117; color: #c9d1d9; }
+        .shield { font-size: 60px; text-align: center; }
+        .hero { text-align: center; padding: 2rem 0; }
+        .credits { color: #58a6ff; font-weight: bold; }
+    </style>
+</head>
+<body>
+<main class="container">
+    <div class="hero">
+        <div class="shield">🛡️</div>
+        <h1>TruthGuard AI</h1>
+        <p>Clean Your Data + Fact-Check Everything Instantly</p>
+        <p>Credits Left: <span class="credits">{{ credits }}</span></p>
+        {% if credits > 0 %}
+            <a href="/clean" role="button">CLEAN DATA ONLY</a>
+        {% else %}
+            <p style="color:red">Kindly buy credits to continue</p>
+        {% endif %}
+        <a href="/pricing" role="button" class="secondary">Buy Credits</a>
+    </div>
+</main>
+</body>
+</html>
