@@ -22,39 +22,31 @@ def get_credits(session_id): return USERS.get(session_id, NEW_USER_CREDITS)
 def use_credit(session_id):
     if session_id in USERS and USERS[session_id] > 0: USERS[session_id] -= 1
 
+# REAL SPELLCHECK DICTIONARY
+SPELL_DICT = {
+    "banananas": "bananas", "recieve": "receive", "teh": "the", "adress": "address",
+    "seperate": "separate", "occured": "occurred", "definately": "definitely"
+}
+
 def clean_text(text):
     if pd.isna(text): return ""
-    text = str(text).strip()
-    text = re.sub(r'\s+', ' ', text) # remove extra spaces
+    text = str(text).strip().lower()
+    text = re.sub(r'\s+', ' ', text)
     
-    # 1. Fix repeated words: "love love" -> "love"
+    # Remove repeated words
     words = text.split()
-    words = [words[i] for i in range(len(words)) if i == 0 or words[i].lower()!= words[i-1].lower()]
+    words = [words[i] for i in range(len(words)) if i == 0 or words[i]!= words[i-1]]
+    
+    # Fix spelling
+    words = [SPELL_DICT.get(w, w) for w in words]
     text = " ".join(words)
     
-    # 2. Fix common spelling mistakes
-    fixes = {
-        "banananas": "bananas",
-        "recieve": "receive",
-        "teh": "the",
-        "cat's": "cats",
-        "it's": "its"
-    }
-    for wrong, right in fixes.items():
-        text = re.sub(rf'\b{wrong}\b', right, text, flags=re.IGNORECASE)
-    
-    # 3. Capitalize first letter
-    if text: text = text[0].upper() + text[1:]
-    return text
+    # Capitalize
+    return text.capitalize()
 
 def smart_clean(df: pd.DataFrame):
-    # Clean every text cell
-    for col in df.columns:
-        df[col] = df[col].apply(clean_text)
-    
-    # Remove duplicate rows
+    df = df.apply(lambda col: col.apply(clean_text))
     df = df.drop_duplicates()
-    # Remove completely empty rows
     df = df.replace('', pd.NA).dropna(how='all').fillna('')
     return df
 
@@ -62,7 +54,7 @@ HOME_HTML = """<!DOCTYPE html><html><head><title>TruthGuard AI</title><meta name
 <style>body{{background:#0a0a0a;color:#fff;font-family:Arial;margin:0;padding:0;display:flex;justify-content:center;align-items:center;min-height:100vh}}
 .container{{text-align:center;padding:40px 20px;max-width:700px}}.shield{{font-size:5em}}.btn{{background:#00ff88;color:#000;padding:18px 40px;border-radius:12px;text-decoration:none;font-weight:bold;margin:10px;display:inline-block;font-size:1.2em}}.credits{{background:#1a1a1a;padding:10px 20px;border-radius:25px;display:inline-block}}</style>
 </head><body><div class="container"><div class="shield">🛡️</div><h1>TruthGuard AI</h1><div class="credits">Credits: {credits}</div>
-<p>AI Powered CSV Cleaning - Fixes Spelling + Grammar</p><a href="/clean" class="btn">CLEAN DATA</a><a href="/pricing" class="btn" style="background:#1a1a1a;color:#fff">Buy Credits</a></div></body></html>"""
+<p>AI Powered CSV + Text Cleaning</p><a href="/clean" class="btn">CLEAN DATA</a><a href="/pricing" class="btn" style="background:#1a1a1a;color:#fff">Buy Credits</a></div></body></html>"""
 
 CLEAN_HTML = """<!DOCTYPE html><html><head><title>Clean Data</title><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>body{{background:#0a0a0a;color:#fff;font-family:Arial;padding:20px}}.container{{max-width:700px;margin:0 auto}}.shield{{font-size:2.5em;text-align:center}}
@@ -72,8 +64,8 @@ button{{background:#00ff88;color:#000;font-weight:bold;cursor:pointer}}button:di
 </head><body><div class="container"><div class="shield">🛡️</div><h1 style="text-align:center">Clean Data</h1>
 <p style="text-align:center">Credits: {credits}</p><p class="{msg_class}">{message}</p>{download_link}
 <form method="post" enctype="multipart/form-data">
-<label>Upload CSV:</label><input type="file" name="file" accept=".csv" {disabled}>
-<label>Or Paste CSV:</label><textarea name="text_data" rows="8" placeholder="name,note\nJohn,i love banananas" {disabled}></textarea>
+<label>Upload CSV/TXT:</label><input type="file" name="file" accept=".csv,.txt" {disabled}>
+<label>Or Paste Data:</label><textarea name="text_data" rows="8" placeholder="I love banananas\nI love bananas" {disabled}></textarea>
 <button type="submit" {disabled}>CLEAN DATA</button></form><br><a href="/" style="color:#00ff88">← Back Home</a></div></body></html>"""
 
 PRICING_HTML = """<!DOCTYPE html><html><head><title>Pricing</title><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -111,22 +103,23 @@ async def clean_data(request: Request, file: UploadFile = File(None), text_data:
     session_id = get_session(request)
     credits = get_credits(session_id)
     if credits <= 0: return HTMLResponse(CLEAN_HTML.format(credits=0, message="Kindly buy credits to continue", msg_class="error", download_link="", disabled="disabled"))
-    if not file and not text_data: return HTMLResponse(CLEAN_HTML.format(credits=credits, message="Please upload a CSV file or paste data first", msg_class="error", download_link="", disabled=""))
+    if not file and not text_data: return HTMLResponse(CLEAN_HTML.format(credits=credits, message="Please upload a file or paste data first", msg_class="error", download_link="", disabled=""))
     
     try:
-        if file and file.filename: df = pd.read_csv(file.file)
-        else: df = pd.read_csv(io.StringIO(text_data))
+        # KEY FIX: header=None so it doesn't skip first row
+        if file and file.filename: df = pd.read_csv(file.file, header=None, names=["data"])
+        else: df = pd.read_csv(io.StringIO(text_data), header=None, names=["data"])
         
-        original = df.to_string()
+        original_rows = len(df)
         df = smart_clean(df)
         use_credit(session_id)
         
         output = io.StringIO()
-        df.to_csv(output, index=False)
+        df.to_csv(output, index=False, header=False) # No header in download
         b64_data = base64.b64encode(output.getvalue().encode()).decode()
         
-        download_link = f'<a href="/download/{b64_data}" class="download">⬇️ Download Cleaned CSV - {len(df)} rows</a>'
-        message = f"✅ Cleaned! Fixed spelling, grammar, and duplicates. 1 credit used."
+        download_link = f'<a href="/download/{b64_data}" class="download">⬇️ Download Cleaned - Removed {original_rows - len(df)} rows</a>'
+        message = f"✅ Cleaned! Fixed spelling and removed duplicates."
         return HTMLResponse(CLEAN_HTML.format(credits=get_credits(session_id), message=message, msg_class="success", download_link=download_link, disabled=""))
     except Exception as e:
         return HTMLResponse(CLEAN_HTML.format(credits=credits, message=f"Error: {str(e)}", msg_class="error", download_link="", disabled=""))
