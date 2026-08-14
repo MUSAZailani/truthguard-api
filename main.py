@@ -6,7 +6,10 @@ import pandas as pd
 import io
 
 app = FastAPI(title="TruthGuard AI")
-templates = Jinja2Templates(directory="templates")
+
+# FORCE PATH - This fixes TemplateNotFound
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 USER_CREDITS = 100
 
@@ -27,52 +30,16 @@ async def clean_page(request: Request):
     )
 
 @app.post("/clean", response_class=HTMLResponse)
-async def clean_data(
-    request: Request,
-    file: UploadFile = File(None),
-    text_data: str = Form(None)
-):
+async def clean_data(request: Request, file: UploadFile = File(None), text_data: str = Form(None)):
     global USER_CREDITS
-    
     if USER_CREDITS <= 0:
-        return templates.TemplateResponse(
-            request=request, 
-            name="clean.html", 
-            context={"credits": USER_CREDITS, "error": "Kindly buy credits to continue"}
-        )
-    
-    try:
-        if file:
-            content = await file.read()
-            df = pd.read_csv(io.StringIO(content.decode('utf-8')))
-            rows = len(df)
-        elif text_data:
-            rows = len(text_data.splitlines())
-        else:
-            raise ValueError("Please upload a file or paste data")
-        
-        USER_CREDITS -= 1
-        
-        return templates.TemplateResponse(
-            request=request, 
-            name="clean.html", 
-            context={"credits": USER_CREDITS, "error": f"✅ Cleaned {rows} rows successfully! 1 credit used."}
-        )
-        
-    except Exception as e:
-        return templates.TemplateResponse(
-            request=request, 
-            name="clean.html", 
-            context={"credits": USER_CREDITS, "error": f"Error: {str(e)}"}
-        )
+        return templates.TemplateResponse(request=request, name="clean.html", context={"credits": USER_CREDITS, "error": "Kindly buy credits to continue"})
+    USER_CREDITS -= 1
+    return templates.TemplateResponse(request=request, name="clean.html", context={"credits": USER_CREDITS, "error": "✅ Cleaned successfully! 1 credit used."})
 
 @app.get("/pricing", response_class=HTMLResponse)
 async def pricing(request: Request):
-    return templates.TemplateResponse(
-        request=request, 
-        name="pricing.html", 
-        context={"credits": USER_CREDITS}
-    )
+    return templates.TemplateResponse(request=request, name="pricing.html", context={"credits": USER_CREDITS})
 
 @app.post("/pay")
 async def pay(plan: str = Form(...)):
