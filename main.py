@@ -71,4 +71,4 @@ async def pricing():
 async def pay(plan: str = Form(...)):
     global USER_CREDITS
     USER_CREDITS += int(plan)
-    return RedirectResponse(url="/pricing", status_code=303)
+    return RedirectResponse(url="/pricing", status_code=303) 
