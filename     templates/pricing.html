@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buy Credits - TruthGuard</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <style>
+        body { background: #0d1117; color: #c9d1d9; }
+        .credits { color: #58a6ff; font-weight: bold; }
+        .plan { border: 1px solid #30363d; padding: 1.5rem; margin: 1rem 0; border-radius: 8px; text-align: center; }
+        .plan h3 { color: #58a6ff; }
+        .header { display: flex; justify-content: space-between; align-items: center; }
+    </style>
+</head>
+<body>
+<main class="container">
+    <div class="header">
+        <h2>Buy Credits</h2>
+        <p>Credits: <span class="credits">{{ credits }}</span></p>
+    </div>
+
+    <p><small>Payment Methods: Card, Bank Transfer, Bank, USSD</small></p>
+
+    <form action="/pay" method="post">
+        <div class="plan">
+            <h3>500 Credits</h3>
+            <p>₦7,000</p>
+            <button name="plan" value="500">Buy Now</button>
+        </div>
+
+        <div class="plan">
+            <h3>1000 Credits</h3>
+            <p>₦50,000</p>
+            <button name="plan" value="1000">Buy Now</button>
+        </div>
+
+        <div class="plan">
+            <h3>10000 Credits</h3>
+            <p>₦75,000</p>
+            <button name="plan" value="10000">Buy Now</button>
+        </div>
+
+        <div class="plan">
+            <h3>20000 Credits</h3>
+            <p>₦150,000</p>
+            <button name="plan" value="20000">Buy Now</button>
+        </div>
+    </form>
+    
+    <br>
+    <a href="/">← Back to Home</a>
+</main>
+</body>
+</html>
