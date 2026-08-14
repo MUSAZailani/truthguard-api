@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 import pandas as pd
 import io
 import uuid
-import asyncio
+import base64
 
 app = FastAPI(title="TruthGuard AI")
 
@@ -25,8 +25,11 @@ def use_credit(session_id):
     if session_id in USERS and USERS[session_id] > 0:
         USERS[session_id] -= 1
 
-async def smart_clean(df: pd.DataFrame):
+def smart_clean(df: pd.DataFrame):
+    # REAL CLEANING: removes duplicates, empty rows, trims spaces
     df = df.drop_duplicates()
+    df = df.dropna(how='all')
+    df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
     df = df.fillna("")
     return df
 
@@ -127,23 +130,30 @@ async def clean_data(request: Request, file: UploadFile = File(None), text_data:
     if credits <= 0:
         return HTMLResponse(CLEAN_HTML.format(credits=0, message="Kindly buy credits to continue", msg_class="error", download_link="", disabled="disabled"))
     
+    if not file and not text_data:
+        return HTMLResponse(CLEAN_HTML.format(credits=credits, message="Please upload a CSV file or paste data first", msg_class="error", download_link="", disabled=""))
+    
     try:
-        if file:
-            df = pd.read_csv(file.file, low_memory=False)
+        if file and file.filename:
+            df = pd.read_csv(file.file)
         elif text_data:
-            df = pd.read_csv(io.StringIO(text_data), low_memory=False)
+            df = pd.read_csv(io.StringIO(text_data))
         else:
-            return HTMLResponse(CLEAN_HTML.format(credits=credits, message="Please upload file or paste data", msg_class="error", download_link="", disabled=""))
+            return HTMLResponse(CLEAN_HTML.format(credits=credits, message="Please upload a CSV file or paste data first", msg_class="error", download_link="", disabled=""))
         
-        df = await smart_clean(df)
+        original_rows = len(df)
+        df = smart_clean(df)
+        cleaned_rows = len(df)
         use_credit(session_id)
         credits = get_credits(session_id)
         
         output = io.StringIO()
         df.to_csv(output, index=False)
+        b64_data = base64.b64encode(output.getvalue().encode()).decode()
         
-        download_link = f'<a href="/download?data={output.getvalue()}" class="download">⬇️ Download Cleaned CSV</a>'
-        return HTMLResponse(CLEAN_HTML.format(credits=credits, message="✅ Cleaned successfully! 1 credit used.", msg_class="success", download_link=download_link, disabled=""))
+        download_link = f'<a href="/download/{b64_data}" class="download">⬇️ Download Cleaned CSV - {cleaned_rows} rows</a>'
+        message = f"✅ Cleaned successfully! Removed {original_rows - cleaned_rows} duplicates/empty rows. 1 credit used."
+        return HTMLResponse(CLEAN_HTML.format(credits=credits, message=message, msg_class="success", download_link=download_link, disabled=""))
     
     except Exception as e:
         return HTMLResponse(CLEAN_HTML.format(credits=credits, message=f"Error: {str(e)}", msg_class="error", download_link="", disabled=""))
@@ -159,4 +169,10 @@ async def pricing(request: Request):
 @app.post("/pay")
 async def pay(request: Request, plan: str = Form(...), method: str = Form(...)):
     session_id = get_session(request)
-    USERS
+    USERS[session_id] = get_credits(session_id) + int(plan)
+    return RedirectResponse(url="/pricing", status_code=303)
+
+@app.get("/download/{b64_data}")
+async def download(b64_data: str):
+    data = base64.b64decode(b64_data).decode()
+    return StreamingResponse(io.StringIO(data), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=truthguard_cleaned.csv"})
