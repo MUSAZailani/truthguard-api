@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clean Data - TruthGuard</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <style>
+        body { background: #0d1117; color: #c9d1d9; }
+        .error { color: #f85149; font-weight: bold; text-align: center; padding: 1rem; border: 1px solid #f85149; border-radius: 8px; margin: 1rem 0; }
+        .credits { color: #58a6ff; font-weight: bold; }
+        .header { display: flex; justify-content: space-between; align-items: center; }
+    </style>
+</head>
+<body>
+<main class="container">
+    <div class="header">
+        <h2>🛡️ CLEAN DATA ONLY</h2>
+        <p>Credits: <span class="credits">{{ credits }}</span></p>
+    </div>
+
+    {% if error %}
+        <article class="error">{{ error }}</article>
+    {% endif %}
+
+    <form action="/clean" method="post" enctype="multipart/form-data">
+        <label>Upload CSV/TXT File - Max 5000 rows
+            <input type="file" name="file" accept=".csv,.txt">
+        </label>
+        
+        <label>OR Paste Data Here
+            <textarea name="text_data" placeholder="Paste your data here..." rows="10"></textarea>
+        </label>
+        
+        <button type="submit">Start Cleaning & Fact-Checking</button>
+    </form>
+    
+    <br>
+    <a href="/">← Back to Home</a>
+</main>
+</body>
+</html>
