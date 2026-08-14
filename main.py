@@ -5,43 +5,50 @@ import io
 import uuid
 import base64
 import re
+import json
+import os
 
 app = FastAPI(title="TruthGuard AI")
 
-USERS = {}
+DB_FILE = "users.json"
 NEW_USER_CREDITS = 500
+
+# LOAD USERS FROM FILE SO THEY DON'T RESET
+def load_users():
+    if os.path.exists(DB_FILE):
+        with open(DB_FILE, "r") as f: return json.load(f)
+    return {}
+
+def save_users(users):
+    with open(DB_FILE, "w") as f: json.dump(users, f)
+
+USERS = load_users()
 
 def get_session(request: Request):
     session_id = request.cookies.get("tg_session")
     if not session_id:
         session_id = str(uuid.uuid4())
         USERS[session_id] = NEW_USER_CREDITS
+        save_users(USERS)
     return session_id
 
 def get_credits(session_id): return USERS.get(session_id, NEW_USER_CREDITS)
-def use_credit(session_id):
-    if session_id in USERS and USERS[session_id] > 0: USERS[session_id] -= 1
 
-# REAL SPELLCHECK DICTIONARY
-SPELL_DICT = {
-    "banananas": "bananas", "recieve": "receive", "teh": "the", "adress": "address",
-    "seperate": "separate", "occured": "occurred", "definately": "definitely"
-}
+def use_credit(session_id):
+    if session_id in USERS and USERS[session_id] > 0: 
+        USERS[session_id] -= 1
+        save_users(USERS) # SAVE IMMEDIATELY
+
+SPELL_DICT = {"banananas": "bananas", "recieve": "receive", "teh": "the"}
 
 def clean_text(text):
     if pd.isna(text): return ""
     text = str(text).strip().lower()
     text = re.sub(r'\s+', ' ', text)
-    
-    # Remove repeated words
     words = text.split()
     words = [words[i] for i in range(len(words)) if i == 0 or words[i]!= words[i-1]]
-    
-    # Fix spelling
     words = [SPELL_DICT.get(w, w) for w in words]
     text = " ".join(words)
-    
-    # Capitalize
     return text.capitalize()
 
 def smart_clean(df: pd.DataFrame):
@@ -66,7 +73,7 @@ button{{background:#00ff88;color:#000;font-weight:bold;cursor:pointer}}button:di
 <form method="post" enctype="multipart/form-data">
 <label>Upload CSV/TXT:</label><input type="file" name="file" accept=".csv,.txt" {disabled}>
 <label>Or Paste Data:</label><textarea name="text_data" rows="8" placeholder="I love banananas\nI love bananas" {disabled}></textarea>
-<button type="submit" {disabled}>CLEAN DATA</button></form><br><a href="/" style="color:#00ff88">← Back Home</a></div></body></html>"""
+<button type="submit" {disabled}>CLEAN DATA - 1 Credit</button></form><br><a href="/" style="color:#00ff88">← Back Home</a></div></body></html>"""
 
 PRICING_HTML = """<!DOCTYPE html><html><head><title>Pricing</title><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>body{{background:#0a0a0a;color:#fff;font-family:Arial;text-align:center;padding:40px 20px}}.shield{{font-size:2.5em}}
@@ -106,25 +113,24 @@ async def clean_data(request: Request, file: UploadFile = File(None), text_data:
     if not file and not text_data: return HTMLResponse(CLEAN_HTML.format(credits=credits, message="Please upload a file or paste data first", msg_class="error", download_link="", disabled=""))
     
     try:
-        # KEY FIX: header=None so it doesn't skip first row
         if file and file.filename: df = pd.read_csv(file.file, header=None, names=["data"])
         else: df = pd.read_csv(io.StringIO(text_data), header=None, names=["data"])
         
         original_rows = len(df)
         df = smart_clean(df)
-        use_credit(session_id)
+        use_credit(session_id) # DEDUCTS AND SAVES NOW
         
         output = io.StringIO()
-        df.to_csv(output, index=False, header=False) # No header in download
+        df.to_csv(output, index=False, header=False)
         b64_data = base64.b64encode(output.getvalue().encode()).decode()
         
         download_link = f'<a href="/download/{b64_data}" class="download">⬇️ Download Cleaned - Removed {original_rows - len(df)} rows</a>'
-        message = f"✅ Cleaned! Fixed spelling and removed duplicates."
+        message = f"✅ Cleaned! 1 Credit Used. You have {get_credits(session_id)} left."
         return HTMLResponse(CLEAN_HTML.format(credits=get_credits(session_id), message=message, msg_class="success", download_link=download_link, disabled=""))
     except Exception as e:
         return HTMLResponse(CLEAN_HTML.format(credits=credits, message=f"Error: {str(e)}", msg_class="error", download_link="", disabled=""))
 
-@app.get("/pricing", response_class=HTMLResponse)
+@app.get("/pricing", response_class=HTMLResponse) # FIXED ROUTE
 async def pricing(request: Request):
     session_id = get_session(request)
     response = HTMLResponse(PRICING_HTML.format(credits=get_credits(session_id)))
@@ -135,6 +141,7 @@ async def pricing(request: Request):
 async def pay(request: Request, plan: str = Form(...)):
     session_id = get_session(request)
     USERS[session_id] = get_credits(session_id) + int(plan)
+    save_users(USERS)
     return RedirectResponse(url="/pricing", status_code=303)
 
 @app.get("/download/{b64_data}")
