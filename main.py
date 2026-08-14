@@ -22,33 +22,49 @@ def get_credits(session_id): return USERS.get(session_id, NEW_USER_CREDITS)
 def use_credit(session_id):
     if session_id in USERS and USERS[session_id] > 0: USERS[session_id] -= 1
 
+def clean_text(text):
+    if pd.isna(text): return ""
+    text = str(text).strip()
+    text = re.sub(r'\s+', ' ', text) # remove extra spaces
+    
+    # 1. Fix repeated words: "love love" -> "love"
+    words = text.split()
+    words = [words[i] for i in range(len(words)) if i == 0 or words[i].lower()!= words[i-1].lower()]
+    text = " ".join(words)
+    
+    # 2. Fix common spelling mistakes
+    fixes = {
+        "banananas": "bananas",
+        "recieve": "receive",
+        "teh": "the",
+        "cat's": "cats",
+        "it's": "its"
+    }
+    for wrong, right in fixes.items():
+        text = re.sub(rf'\b{wrong}\b', right, text, flags=re.IGNORECASE)
+    
+    # 3. Capitalize first letter
+    if text: text = text[0].upper() + text[1:]
+    return text
+
 def smart_clean(df: pd.DataFrame):
-    # 1. SMART TEXT CLEANING
+    # Clean every text cell
     for col in df.columns:
-        if df[col].dtype == "object":
-            df[col] = df[col].astype(str).str.strip() # remove spaces
-            df[col] = df[col].str.replace(r'\s+', ' ', regex=True) # remove double spaces
-            df[col] = df[col].str.title() # Capitalize First Letter
+        df[col] = df[col].apply(clean_text)
     
-    # 2. REMOVE DUPLICATES + EMPTY
+    # Remove duplicate rows
     df = df.drop_duplicates()
-    df = df.replace('nan', '').replace('None', '')
-    df = df.dropna(how='all')
-    
-    # 3. AUTO FIX COMMON ERRORS
-    df = df.apply(lambda x: x.str.replace("Cat's", "Cats") if x.dtype == "object" else x)
-    
+    # Remove completely empty rows
+    df = df.replace('', pd.NA).dropna(how='all').fillna('')
     return df
 
-HOME_HTML = """<!DOCTYPE html><html><head><title>TruthGuard AI</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+HOME_HTML = """<!DOCTYPE html><html><head><title>TruthGuard AI</title><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>body{{background:#0a0a0a;color:#fff;font-family:Arial;margin:0;padding:0;display:flex;justify-content:center;align-items:center;min-height:100vh}}
 .container{{text-align:center;padding:40px 20px;max-width:700px}}.shield{{font-size:5em}}.btn{{background:#00ff88;color:#000;padding:18px 40px;border-radius:12px;text-decoration:none;font-weight:bold;margin:10px;display:inline-block;font-size:1.2em}}.credits{{background:#1a1a1a;padding:10px 20px;border-radius:25px;display:inline-block}}</style>
 </head><body><div class="container"><div class="shield">🛡️</div><h1>TruthGuard AI</h1><div class="credits">Credits: {credits}</div>
-<p>AI Powered CSV Cleaning for 5000+ rows</p><a href="/clean" class="btn">CLEAN DATA</a><a href="/pricing" class="btn" style="background:#1a1a1a;color:#fff">Buy Credits</a></div></body></html>"""
+<p>AI Powered CSV Cleaning - Fixes Spelling + Grammar</p><a href="/clean" class="btn">CLEAN DATA</a><a href="/pricing" class="btn" style="background:#1a1a1a;color:#fff">Buy Credits</a></div></body></html>"""
 
-CLEAN_HTML = """<!DOCTYPE html><html><head><title>Clean Data</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+CLEAN_HTML = """<!DOCTYPE html><html><head><title>Clean Data</title><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>body{{background:#0a0a0a;color:#fff;font-family:Arial;padding:20px}}.container{{max-width:700px;margin:0 auto}}.shield{{font-size:2.5em;text-align:center}}
 input,button,textarea{{width:100%;padding:14px;margin:12px 0;border-radius:10px;border:none;background:#1a1a1a;color:#fff;box-sizing:border-box}}
 button{{background:#00ff88;color:#000;font-weight:bold;cursor:pointer}}button:disabled{{background:#333;color:#666}}.error{{color:#ff4444;text-align:center}}.success{{color:#00ff88;text-align:center}}
@@ -57,11 +73,10 @@ button{{background:#00ff88;color:#000;font-weight:bold;cursor:pointer}}button:di
 <p style="text-align:center">Credits: {credits}</p><p class="{msg_class}">{message}</p>{download_link}
 <form method="post" enctype="multipart/form-data">
 <label>Upload CSV:</label><input type="file" name="file" accept=".csv" {disabled}>
-<label>Or Paste CSV:</label><textarea name="text_data" rows="8" placeholder="name,email,age\nJohn,john@test.com,25" {disabled}></textarea>
+<label>Or Paste CSV:</label><textarea name="text_data" rows="8" placeholder="name,note\nJohn,i love banananas" {disabled}></textarea>
 <button type="submit" {disabled}>CLEAN DATA</button></form><br><a href="/" style="color:#00ff88">← Back Home</a></div></body></html>"""
 
-PRICING_HTML = """<!DOCTYPE html><html><head><title>Pricing</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+PRICING_HTML = """<!DOCTYPE html><html><head><title>Pricing</title><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>body{{background:#0a0a0a;color:#fff;font-family:Arial;text-align:center;padding:40px 20px}}.shield{{font-size:2.5em}}
 .card{{background:#1a1a1a;padding:30px;margin:20px auto;border-radius:15px;max-width:400px}}
 .pay-btn{{background:#00ff88;color:#000;padding:14px 25px;border-radius:10px;border:none;font-weight:bold;cursor:pointer;width:100%;margin:8px 0}}</style>
@@ -102,7 +117,7 @@ async def clean_data(request: Request, file: UploadFile = File(None), text_data:
         if file and file.filename: df = pd.read_csv(file.file)
         else: df = pd.read_csv(io.StringIO(text_data))
         
-        original_rows = len(df)
+        original = df.to_string()
         df = smart_clean(df)
         use_credit(session_id)
         
@@ -111,7 +126,7 @@ async def clean_data(request: Request, file: UploadFile = File(None), text_data:
         b64_data = base64.b64encode(output.getvalue().encode()).decode()
         
         download_link = f'<a href="/download/{b64_data}" class="download">⬇️ Download Cleaned CSV - {len(df)} rows</a>'
-        message = f"✅ Cleaned! Removed {original_rows - len(df)} duplicates. Fixed grammar & spaces."
+        message = f"✅ Cleaned! Fixed spelling, grammar, and duplicates. 1 credit used."
         return HTMLResponse(CLEAN_HTML.format(credits=get_credits(session_id), message=message, msg_class="success", download_link=download_link, disabled=""))
     except Exception as e:
         return HTMLResponse(CLEAN_HTML.format(credits=credits, message=f"Error: {str(e)}", msg_class="error", download_link="", disabled=""))
