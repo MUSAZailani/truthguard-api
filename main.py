@@ -35,8 +35,8 @@ def init_db():
     conn = get_db()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (id SERIAL PRIMARY KEY, 
-                  email TEXT UNIQUE NOT NULL, 
+                 (id SERIAL PRIMARY KEY,
+                  email TEXT UNIQUE NOT NULL,
                   password_hash TEXT NOT NULL,
                   credits INTEGER DEFAULT 500)''')
     conn.commit()
@@ -96,7 +96,7 @@ def get_current_user(request: Request):
     return email
 
 SPELL_DICT = {
-    'teh': 'the', 'adn': 'and', 'recieve': 'receive', 'seperate': 'separate', 
+    'teh': 'the', 'adn': 'and', 'recieve': 'receive', 'seperate': 'separate',
     'definately': 'definitely', 'occured': 'occurred', 'goverment': 'government'
 }
 
@@ -136,10 +136,10 @@ def LOGIN_PAGE(message=""):
 def SIGNUP_PAGE(message=""):
     return f"<!DOCTYPE html><html><head><title>Sign Up - TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(None,500)}<div class=container style=max-width:400px><h1 style=text-align:center;color:#00ff88>Sign Up</h1><p class=error>{message}</p><form method=post><input name=email type=email placeholder=Email required><input name=password type=password placeholder=Password required><button type=submit class=btn>Create Account - {NEW_USER_CREDITS} Free Credits</button></form><p style=text-align:center>Already have account? <a href=/login style=color:#00ff88>Login</a></p></div></body></html>"
 
-def HOME_PAGE(email, credits): 
+def HOME_PAGE(email, credits):
     return f"<!DOCTYPE html><html><head><title>TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(email, credits)}<div class=container style=text-align:center><div style=font-size:5em;margin:20px 0>🛡️</div><h1 style=color:#00ff88>TruthGuard AI</h1><p style=color:#aaa;font-size:1.2em>AI Powered CSV & Text Cleaning</p><p style=color:#00ff88>Handles 5000+ rows instantly • 1 Credit = 1 Row</p><p style=color:#00ff88;font-size:1.1em>New Users Get {NEW_USER_CREDITS} Free Credits</p><div style=margin-top:40px><a href=/clean class=btn>CLEAN DATA</a></div></div></body></html>"
 
-def CLEAN_PAGE(email, credits, message="", msg_class="", download_link="", disabled=""): 
+def CLEAN_PAGE(email, credits, message="", msg_class="", download_link="", disabled=""):
     return f"<!DOCTYPE html><html><head><title>Cleaning - TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(email, credits)}<div class=container><h1 style=text-align:center;color:#00ff88>Cleaning</h1><p class={msg_class}>{message}</p>{download_link}<form method=post enctype=multipart/form-data><label><b>Upload CSV/TXT File:</b></label><input type=file name=file accept=.csv,.txt {disabled}><label><b>Or Paste Data Here:</b></label><textarea name=text_data rows=12 placeholder='Paste up to 5000 rows...' {disabled}></textarea><button type=submit class=btn {disabled}>CLEAN DATA</button></form></div></body></html>"
 
 def PRICING_PAGE(email, credits):
@@ -198,7 +198,7 @@ async def clean_page(request: Request):
     credits = get_credits(email)
     disabled = "disabled" if credits <= 0 else ""
     message = "kindly buy credits to continue" if credits <= 0 else ""
-    response = HTMLResponse(CLEAN_PAGE(email, credits, message, "error" if credits <= 0 else "", disabled))
+    response = HTMLResponse(CLEAN_PAGE(email, credits, message, "error" if credits <= 0 else "", "", disabled)) # FIXED: added ""
     return response
 
 @app.post("/clean", response_class=HTMLResponse)
@@ -207,31 +207,35 @@ async def clean_data(request: Request, file: UploadFile = File(None), text_data:
     if not email: return RedirectResponse("/login")
     credits = get_credits(email)
     if credits <= 0: return HTMLResponse(CLEAN_PAGE(email, 0, "kindly buy credits to continue", "error", "", "disabled"))
-    
-    df = None
-    if file:
-        content = await file.read()
-        df = pd.read_csv(io.StringIO(content.decode()))
-    elif text_data:
-        df = pd.read_csv(io.StringIO(text_data))
-    else:
-        return HTMLResponse(CLEAN_PAGE(email, credits, "Please upload a file or paste data", "error"))
 
-    rows = len(df)
-    if rows > 5000:
-        return HTMLResponse(CLEAN_PAGE(email, credits, "Max 5000 rows per cleaning", "error"))
-    if credits < rows: 
-        return HTMLResponse(CLEAN_PAGE(email, credits, f"Not enough credits. This will cost {rows} credits. You have {credits}.", "error"))
-    
-    df_cleaned = smart_clean(df)
-    use_credits(email, rows)
-    new_credits = get_credits(email)
-    
-    csv = df_cleaned.to_csv(index=False)
-    b64 = base64.b64encode(csv.encode()).decode()
-    download_link = f'<a href="data:file/csv;base64,{b64}" download="cleaned.csv" class=download>⬇️ Download Cleaned CSV</a>'
-    message = f"✅ Cleaned {rows} rows! {rows} Credits Used. You have {new_credits} left."
-    return HTMLResponse(CLEAN_PAGE(email, new_credits, message, "success", download_link, ""))
+    try:
+        df = None
+        if file and file.filename:
+            content = await file.read()
+            df = pd.read_csv(io.BytesIO(content)) # FIXED: BytesIO
+        elif text_data:
+            df = pd.read_csv(io.StringIO(text_data))
+        else:
+            return HTMLResponse(CLEAN_PAGE(email, credits, "Please upload a file or paste data", "error", "", ""))
+
+        rows = len(df)
+        if rows > 5000:
+            return HTMLResponse(CLEAN_PAGE(email, credits, "Max 5000 rows per cleaning", "error", "", ""))
+        if credits < rows:
+            return HTMLResponse(CLEAN_PAGE(email, credits, f"Not enough credits. This will cost {rows} credits. You have {credits}.", "error", "", ""))
+
+        df_cleaned = smart_clean(df)
+        use_credits(email, rows)
+        new_credits = get_credits(email)
+
+        csv = df_cleaned.to_csv(index=False)
+        b64 = base64.b64encode(csv.encode()).decode()
+        download_link = f'<a href="data:file/csv;base64,{b64}" download="cleaned.csv" class=download>⬇️ Download Cleaned CSV</a>'
+        message = f"✅ Cleaned {rows} rows! {rows} Credits Used. You have {new_credits} left."
+        return HTMLResponse(CLEAN_PAGE(email, new_credits, message, "success", download_link, ""))
+
+    except Exception as e:
+        return HTMLResponse(CLEAN_PAGE(email, credits, f"Error cleaning file: {str(e)}. Check CSV format.", "error", "", ""))
 
 @app.get("/pricing", response_class=HTMLResponse)
 async def pricing(request: Request):
