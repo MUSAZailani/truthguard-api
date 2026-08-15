@@ -63,13 +63,20 @@ SPELL_DICT = {"banananas": "bananas", "recieve": "receive", "teh": "the", "adres
 
 def clean_text(text):
     if pd.isna(text): return ""
-    text = str(text).strip().lower() # lowercase for better dedup
+    text = str(text).strip()
     text = re.sub(r'\s+', ' ', text) # fix multiple spaces
     text = re.sub(r'\s*:\s*', ': ', text) # standardize key: value
+    
     words = text.split()
-    words = [words[i] for i in range(len(words)) if i == 0 or words[i]!= words[i-1]] # remove repeat words
-    words = [SPELL_DICT.get(w, w) for w in words] # fix typos
-    return " ".join(words).strip()
+    cleaned_words = []
+    for w in words:
+        w_check = w.lower().replace(':', '').replace('@', '').replace('/', '') # check dict clean
+        cleaned_words.append(SPELL_DICT.get(w_check, w))
+    
+    # remove duplicate words
+    final_words = [cleaned_words[i] for i in range(len(cleaned_words)) if i == 0 or cleaned_words[i].lower()!= cleaned_words[i-1].lower()]
+    
+    return " ".join(final_words).strip()
 
 def smart_clean(df: pd.DataFrame):
     df = df.astype(str)
