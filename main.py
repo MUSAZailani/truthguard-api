@@ -189,7 +189,7 @@ async def checkout(request: Request, plan_key: str):
     response.set_cookie("tg_session", session_id)
     return response
 
-# ONLY THIS CHANGED - OPENS PAYSTACK IN NEW TAB
+# FINAL FIX - NO POPUP, JUST REDIRECT
 @app.post("/pay")
 async def pay(request: Request, plan: str = Form(...), method: str = Form(...)):
     session_id = get_session(request)
@@ -208,8 +208,7 @@ async def pay(request: Request, plan: str = Form(...), method: str = Form(...)):
     response_data = res.json()
     if response_data["status"]:
         auth_url = response_data["data"]["authorization_url"]
-        # THIS OPENS IN NEW TAB SO FIREFOX/WHATSAPP WON'T BLOCK IT
-        return HTMLResponse(f'<script>window.open("{auth_url}", "_blank"); window.location.href="/pricing";</script><p>Opening Paystack... <a href="{auth_url}" target="_blank">Click here if it did not open</a></p>')
+        return RedirectResponse(url=auth_url, status_code=303)
     else:
         return RedirectResponse(url="/pricing", status_code=303)
 
