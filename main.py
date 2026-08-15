@@ -63,29 +63,34 @@ SPELL_DICT = {"banananas": "bananas", "recieve": "receive", "teh": "the", "adres
 
 def clean_text(text):
     if pd.isna(text): return ""
-    text = str(text).strip()
+    text = str(text).strip().lower() # lowercase immediately
     text = re.sub(r'\s+', ' ', text) # fix multiple spaces
     text = re.sub(r'\s*:\s*', ': ', text) # standardize key: value
     
     words = text.split()
     cleaned_words = []
     for w in words:
-        w_check = w.lower().replace(':', '').replace('@', '').replace('/', '')
+        w_check = w.replace(':', '').replace('@', '').replace('/', '').replace('.', '')
         cleaned_words.append(SPELL_DICT.get(w_check, w))
     
     # remove duplicate words
-    final_words = [cleaned_words[i] for i in range(len(cleaned_words)) if i == 0 or cleaned_words[i].lower()!= cleaned_words[i-1].lower()]
+    final_words = [cleaned_words[i] for i in range(len(cleaned_words)) if i == 0 or cleaned_words[i]!= cleaned_words[i-1]]
     
-    return " ".join(final_words).strip().lower() # LOWERCASE FOR DEDUP
+    return " ".join(final_words).strip()
 
 def smart_clean(df: pd.DataFrame):
     df = df.astype(str)
     for col in df.columns: df[col] = df[col].apply(clean_text)
-    df = df[df!= ''] # remove empty
-    df = df[df!= 'nan'] # remove nan strings
-    df = df[df!= 'none'] # remove none strings
-    df = df.drop_duplicates() # exact dedup
-    df = df.drop_duplicates(subset=['data'], keep='first') # case-insensitive dedup
+    
+    # Remove garbage rows
+    df = df[~df['data'].isin(['', 'nan', 'none', 'null', 'n/a'])]
+    df = df[df['data'].str.len() > 1] # remove single chars
+    
+    # Create a "fingerprint" for aggressive dedup: remove all spaces/punct
+    df['fingerprint'] = df['data'].str.replace(r'[^a-z0-9]', '', regex=True)
+    df = df.drop_duplicates(subset=['fingerprint'], keep='first')
+    df = df.drop(columns=['fingerprint'])
+    
     return df
 
 def NAVBAR(credits):
