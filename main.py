@@ -26,7 +26,6 @@ PLANS = {
     "20000": {"price": 150000, "credits": 20000, "name": "Enterprise"}
 }
 
-# CREATE TABLE ONCE
 def get_db():
     conn = psycopg2.connect(DATABASE_URL)
     return conn
@@ -97,8 +96,27 @@ def get_current_user(request: Request):
 
 SPELL_DICT = {
     'teh': 'the', 'adn': 'and', 'recieve': 'receive', 'seperate': 'separate',
-    'definately': 'definitely', 'occured': 'occurred', 'goverment': 'government'
+    'definately': 'definitely', 'occured': 'occurred', 'goverment': 'government',
+    'califonia': 'california', 'newyork': 'new york'
 }
+
+def clean_money(s):
+    s = str(s).strip()
+    match = re.match(r'\$?([\d\.]+)([KMB])', s, re.I)
+    if match:
+        num, unit = match.groups()
+        num = float(num)
+        if unit.upper() == 'K': num *= 1000
+        elif unit.upper() == 'M': num *= 1000000
+        elif unit.upper() == 'B': num *= 1000000000
+        return str(int(num))
+    return s
+
+def clean_email(s):
+    s = str(s).strip().lower()
+    if re.match(r"[^@]+@[^@]+\.[^@]+", s):
+        return s
+    return ""
 
 def clean_text(s):
     s = str(s).strip()
@@ -106,13 +124,21 @@ def clean_text(s):
     s = re.sub(r'[^a-zA-Z0-9\s@._-]', '', s)
     words = s.split()
     words = [SPELL_DICT.get(w.lower(), w) for w in words]
-    return ' '.join(words)
+    return ' '.join(words).title() # ADDED.title() for capitalization
 
 def smart_clean(df):
     df = df.drop_duplicates()
     df = df.fillna('')
+
     for col in df.columns:
-        df[col] = df[col].astype(str).apply(clean_text)
+        col_lower = col.lower()
+        if 'email' in col_lower:
+            df[col] = df[col].astype(str).apply(clean_email) # EMAIL VALIDATION
+        elif 'fund' in col_lower or 'price' in col_lower or 'amount' in col_lower:
+            df[col] = df[col].astype(str).apply(clean_money) # MONEY STANDARDIZATION
+        else:
+            df[col] = df[col].astype(str).apply(clean_text) # TEXT + CAPITALIZATION
+
     return df
 
 def NAVBAR(email, credits):
@@ -198,7 +224,7 @@ async def clean_page(request: Request):
     credits = get_credits(email)
     disabled = "disabled" if credits <= 0 else ""
     message = "kindly buy credits to continue" if credits <= 0 else ""
-    response = HTMLResponse(CLEAN_PAGE(email, credits, message, "error" if credits <= 0 else "", "", disabled)) # FIXED: added ""
+    response = HTMLResponse(CLEAN_PAGE(email, credits, message, "error" if credits <= 0 else "", "", disabled))
     return response
 
 @app.post("/clean", response_class=HTMLResponse)
@@ -212,7 +238,7 @@ async def clean_data(request: Request, file: UploadFile = File(None), text_data:
         df = None
         if file and file.filename:
             content = await file.read()
-            df = pd.read_csv(io.BytesIO(content)) # FIXED: BytesIO
+            df = pd.read_csv(io.BytesIO(content))
         elif text_data:
             df = pd.read_csv(io.StringIO(text_data))
         else:
