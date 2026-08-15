@@ -63,9 +63,9 @@ SPELL_DICT = {"banananas": "bananas", "recieve": "receive", "teh": "the", "adres
 
 def clean_text(text):
     if pd.isna(text): return ""
-    text = str(text).strip().lower() # lowercase immediately
-    text = re.sub(r'\s+', ' ', text) # fix multiple spaces
-    text = re.sub(r'\s*:\s*', ': ', text) # standardize key: value
+    text = str(text).strip().lower()
+    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r'\s*:\s*', ': ', text)
     
     words = text.split()
     cleaned_words = []
@@ -73,23 +73,35 @@ def clean_text(text):
         w_check = w.replace(':', '').replace('@', '').replace('/', '').replace('.', '')
         cleaned_words.append(SPELL_DICT.get(w_check, w))
     
-    # remove duplicate words
     final_words = [cleaned_words[i] for i in range(len(cleaned_words)) if i == 0 or cleaned_words[i]!= cleaned_words[i-1]]
-    
     return " ".join(final_words).strip()
+
+def normalize_for_fingerprint(text):
+    text = text.lower()
+    # Normalize emails: remove spaces around @ and.
+    text = re.sub(r'\s*@\s*', '@', text)
+    text = re.sub(r'\s*\.\s*', '.', text)
+    # Normalize phones: keep only digits after phone:
+    text = re.sub(r'phone:\s*', 'phone:', text)
+    # Normalize prices: remove.00
+    text = re.sub(r'\.00\b', '', text)
+    # Normalize dates: remove - / and spaces
+    text = re.sub(r'[-/ ]', '', text)
+    return text
 
 def smart_clean(df: pd.DataFrame):
     df = df.astype(str)
     for col in df.columns: df[col] = df[col].apply(clean_text)
     
-    # Remove garbage rows
+    # Remove garbage
     df = df[~df['data'].isin(['', 'nan', 'none', 'null', 'n/a'])]
-    df = df[df['data'].str.len() > 1] # remove single chars
+    df = df[df['data'].str.len() > 1]
     
-    # Create a "fingerprint" for aggressive dedup: remove all spaces/punct
-    df['fingerprint'] = df['data'].str.replace(r'[^a-z0-9]', '', regex=True)
+    # Normalize THEN fingerprint for aggressive dedup
+    df['normalized'] = df['data'].apply(normalize_for_fingerprint)
+    df['fingerprint'] = df['normalized'].str.replace(r'[^a-z0-9@]', '', regex=True)
     df = df.drop_duplicates(subset=['fingerprint'], keep='first')
-    df = df.drop(columns=['fingerprint'])
+    df = df.drop(columns=['normalized', 'fingerprint'])
     
     return df
 
