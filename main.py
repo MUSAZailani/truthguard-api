@@ -14,7 +14,6 @@ app = FastAPI(title="TruthGuard AI")
 DB_FILE = "users.json"
 NEW_USER_CREDITS = 500
 PAYSTACK_LIVE_KEY = os.getenv("PAYSTACK_LIVE_KEY")
-# ADD YOUR RAILWAY URL HERE
 BASE_URL = "https://truthguard-api-production-d58a.up.railway.app"
 
 PLANS = {
@@ -190,7 +189,7 @@ async def checkout(request: Request, plan_key: str):
     response.set_cookie("tg_session", session_id)
     return response
 
-# ONLY THIS FUNCTION CHANGED - FIXES THE PAYSTACK ERROR
+# ONLY THIS CHANGED - OPENS PAYSTACK IN NEW TAB
 @app.post("/pay")
 async def pay(request: Request, plan: str = Form(...), method: str = Form(...)):
     session_id = get_session(request)
@@ -209,8 +208,8 @@ async def pay(request: Request, plan: str = Form(...), method: str = Form(...)):
     response_data = res.json()
     if response_data["status"]:
         auth_url = response_data["data"]["authorization_url"]
-        # FORCE FULL PAGE REDIRECT INSTEAD OF IFRAME
-        return HTMLResponse(f'<script>window.top.location.href = "{auth_url}";</script>')
+        # THIS OPENS IN NEW TAB SO FIREFOX/WHATSAPP WON'T BLOCK IT
+        return HTMLResponse(f'<script>window.open("{auth_url}", "_blank"); window.location.href="/pricing";</script><p>Opening Paystack... <a href="{auth_url}" target="_blank">Click here if it did not open</a></p>')
     else:
         return RedirectResponse(url="/pricing", status_code=303)
 
