@@ -13,7 +13,7 @@ app = FastAPI(title="TruthGuard AI")
 
 DB_FILE = "users.json"
 NEW_USER_CREDITS = 500
-PAYSTACK_LIVE_KEY = os.getenv("PAYSTACK_LIVE_KEY") # READ FROM RAILWAY
+PAYSTACK_LIVE_KEY = os.getenv("PAYSTACK_LIVE_KEY")
 
 PLANS = {
     "500": {"price": 7000, "credits": 500, "name": "Starter"},
@@ -23,12 +23,16 @@ PLANS = {
 }
 
 def load_users():
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, "r") as f: return json.load(f)
+    try:
+        if os.path.exists(DB_FILE):
+            with open(DB_FILE, "r") as f: return json.load(f)
+    except: pass
     return {}
 
 def save_users(users):
-    with open(DB_FILE, "w") as f: json.dump(users, f)
+    try:
+        with open(DB_FILE, "w") as f: json.dump(users, f)
+    except: pass # Railway may block writes, but we try
 
 USERS = load_users()
 
@@ -36,13 +40,19 @@ def get_session(request: Request):
     session_id = request.cookies.get("tg_session")
     if not session_id:
         session_id = str(uuid.uuid4())
+    if session_id not in USERS:
         USERS[session_id] = NEW_USER_CREDITS
         save_users(USERS)
     return session_id
 
-def get_credits(session_id): return USERS.get(session_id, NEW_USER_CREDITS)
+def get_credits(session_id): 
+    global USERS
+    USERS = load_users() # RELOAD EVERY TIME for Railway
+    return USERS.get(session_id, NEW_USER_CREDITS)
 
 def use_credits(session_id, amount):
+    global USERS
+    USERS = load_users() # RELOAD FIRST
     if session_id in USERS and USERS[session_id] >= amount:
         USERS[session_id] -= amount
         save_users(USERS)
@@ -54,17 +64,18 @@ SPELL_DICT = {"banananas": "bananas", "recieve": "receive", "teh": "the", "adres
 def clean_text(text):
     if pd.isna(text): return ""
     text = str(text).strip()
-    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r'\s+', ' ', text) # only fix spacing
     words = text.split()
-    words = [words[i] for i in range(len(words)) if i == 0 or words[i].lower()!= words[i-1].lower()]
-    words = [SPELL_DICT.get(w.lower(), w) for w in words]
+    words = [words[i] for i in range(len(words)) if i == 0 or words[i].lower()!= words[i-1].lower()] # remove repeat words only
+    words = [SPELL_DICT.get(w.lower(), w) for w in words] # fix small typos
     return " ".join(words)
 
 def smart_clean(df: pd.DataFrame):
     df = df.astype(str)
     for col in df.columns: df[col] = df[col].apply(clean_text)
-    df = df.drop_duplicates()
-    df = df.replace('nan', '').replace('', pd.NA).dropna(how='all').fillna('')
+    df = df.drop_duplicates() # keep this
+    # REMOVED: df.dropna(how='all') <- this was deleting too much
+    df = df.replace('nan', '').replace('None', '')
     return df
 
 def NAVBAR(credits):
@@ -102,7 +113,7 @@ def PRICING_PAGE(credits):
     return f"<!DOCTYPE html><html><head><title>Pricing - TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(credits)}<div class=container><h1 style=text-align:center;color:#00ff88>Choose Your Plan</h1><p style=text-align:center;color:#aaa>Pay once. Use forever. 1 Credit = 1 Row Cleaned</p><div class=grid>{cards}</div></div></body></html>"
 def CHECKOUT_PAGE(credits, plan_key):
     plan = PLANS[plan_key]
-    return f"<!DOCTYPE html><html><head><title>Checkout - TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(credits)}<div class=container style=max-width:500px><h1 style=text-align:center;color:#00ff88>Complete Payment</h1><div class=card><h2>{plan['name']} Plan</h2><div class=price>₦{plan['price']:,}</div><p>{plan['credits']:,} Credits</p><hr style=border-color:#333;margin:20px 0><h3 style=text-align:center>Choose Payment Method</h3><form method=post action=/pay><input type=hidden name=plan value={plan_key}><button class=btn name=method value=card>Pay with Card</button><button class=btn btn-secondary name=method value=bank>Pay with Bank</button><button class=btn btn-secondary name=method value=ussd>Pay with USSD</button><button class=btn btn-secondary name=method value=qr>Pay with QR</button></form><br><a href=/pricing style=color:#00ff88>← Back to Plans</a></div><p style=text-align:center;font-size:0.9em;color:#555>Bank Transfer unlocks after business verification</p></div></body></html>"
+    return f"<!DOCTYPE html><html><head><title>Checkout - TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(credits)}<div class=container style=max-width:500px><h1 style=text-align:center;color:#00ff88>Complete Payment</h1><div class=card><h2>{plan['name']} Plan</h2><div class=price>₦{plan['price']:,}</div><p>{plan['credits']:,} Credits</p><hr style=border-color:#333;margin:20px 0><h3 style=text-align:center>Choose Payment Method</h3><form method=post action=/pay><input type=hidden name=plan value={plan_key}><button class=btn name=method value=card>Pay with Card</button><button class=btn btn-secondary name=method value=bank>Pay with Bank</button><button class=btn btn-secondary name=method value=ussd>Pay with USSD</button><button class=btn btn-secondary name=method value=qr>Pay with QR</button></form><br><a href=/pricing style=color:#00ff88>← Back to Plans</a></div></div></body></html>"
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -132,14 +143,15 @@ async def clean_data(request: Request, file: UploadFile = File(None), text_data:
         else: df = pd.read_csv(io.StringIO(text_data), header=None, names=["data"], on_bad_lines='skip', low_memory=False)
         rows = len(df)
         if credits < rows: return HTMLResponse(CLEAN_PAGE(credits, f"Not enough credits. This will cost {rows} credits. You have {credits}.", "error", "", ""))
-        df = smart_clean(df)
-        use_credits(session_id, rows)
+        df_cleaned = smart_clean(df)
+        use_credits(session_id, rows) # DEDUCT BEFORE DOWNLOAD
+        new_credits = get_credits(session_id) # RELOAD TO SHOW CORRECT
         output = io.StringIO()
-        df.to_csv(output, index=False, header=False)
+        df_cleaned.to_csv(output, index=False, header=False)
         b64_data = base64.b64encode(output.getvalue().encode()).decode()
-        download_link = f'<a href="/download/{b64_data}" class="download">⬇️ Download Cleaned CSV - {len(df)} rows</a>'
-        message = f"✅ Cleaned {rows} rows! {rows} Credits Used. You have {get_credits(session_id)} left."
-        return HTMLResponse(CLEAN_PAGE(get_credits(session_id), message, "success", download_link, ""))
+        download_link = f'<a href="/download/{b64_data}" class="download">⬇️ Download Cleaned CSV - {len(df_cleaned)} rows</a>'
+        message = f"✅ Cleaned {rows} rows! {rows} Credits Used. You have {new_credits} left."
+        return HTMLResponse(CLEAN_PAGE(new_credits, message, "success", download_link, ""))
     except Exception as e: return HTMLResponse(CLEAN_PAGE(credits, f"Error: {str(e)}", "error", "", ""))
 
 @app.get("/pricing", response_class=HTMLResponse)
@@ -162,20 +174,14 @@ async def pay(request: Request, plan: str = Form(...), method: str = Form(...)):
     session_id = get_session(request)
     plan_data = PLANS[plan]
     amount = plan_data["price"] * 100
-
     headers = {"Authorization": f"Bearer {PAYSTACK_LIVE_KEY}", "Content-Type": "application/json"}
     data = {
-        "amount": amount,
-        "email": f"{session_id}@truthguard.ai",
-        "currency": "NGN",
-        "channels": [method], # card, bank, ussd, qr
-        "callback_url": "https://your-app.railway.app/verify", # <-- CHANGE TO YOUR RAILWAY URL
+        "amount": amount, "email": f"{session_id}@truthguard.ai", "currency": "NGN",
+        "channels": [method], "callback_url": "https://your-app.railway.app/verify",
         "metadata": {"session_id": session_id, "credits": plan_data["credits"]}
     }
-
     res = requests.post("https://api.paystack.co/transaction/initialize", headers=headers, json=data)
     response_data = res.json()
-
     if response_data["status"]:
         return RedirectResponse(url=response_data["data"]["authorization_url"], status_code=303)
     else:
@@ -186,14 +192,14 @@ async def verify(request: Request, reference: str):
     headers = {"Authorization": f"Bearer {PAYSTACK_LIVE_KEY}"}
     res = requests.get(f"https://api.paystack.co/transaction/verify/{reference}", headers=headers)
     data = res.json()
-
     if data["status"] and data["data"]["status"] == "success":
         metadata = data["data"]["metadata"]
         session_id = metadata["session_id"]
         credits = int(metadata["credits"])
+        global USERS
+        USERS = load_users()
         USERS[session_id] = get_credits(session_id) + credits
         save_users(USERS)
-
     return RedirectResponse(url="/pricing", status_code=303)
 
 @app.get("/download/{b64_data}")
