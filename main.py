@@ -7,12 +7,13 @@ import base64
 import re
 import json
 import os
+import requests
 
 app = FastAPI(title="TruthGuard AI")
 
 DB_FILE = "users.json"
 NEW_USER_CREDITS = 500
-PAYSTACK_LIVE_KEY = "sk_live_YOUR_LIVE_KEY_HERE"
+PAYSTACK_LIVE_KEY = "sk_live_YOUR_LIVE_KEY_HERE" # <-- PUT YOUR REAL LIVE KEY HERE
 
 PLANS = {
     "500": {"price": 7000, "credits": 500, "name": "Starter"},
@@ -92,71 +93,16 @@ input,textarea{width:100%;padding:14px;margin:12px 0;border-radius:10px;border:1
 .price{font-size:2.5em;font-weight:bold;color:#00ff88;margin:10px 0}
 </style>"""
 
-def HOME_PAGE(credits):
-    return f"""<!DOCTYPE html><html><head><title>TruthGuard AI</title><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}
-</head><body>{NAVBAR(credits)}
-<div class="container" style="text-align:center">
-<div style="font-size:5em;margin:20px 0">🛡️</div>
-<h1 style="color:#00ff88">TruthGuard AI</h1>
-<p style="color:#aaa;font-size:1.2em">AI Powered CSV & Text Cleaning</p>
-<p style="color:#00ff88">Handles 5000+ rows instantly • 1 Credit = 1 Row</p>
-<p style="color:#00ff88;font-size:1.1em">New Users Get {NEW_USER_CREDITS} Free Credits</p>
-<div style="margin-top:40px"><a href="/clean" class="btn">CLEAN DATA</a></div>
-</div></body></html>"""
-
-def CLEAN_PAGE(credits, message="", msg_class="", download_link="", disabled=""):
-    return f"""<!DOCTYPE html><html><head><title>Cleaning - TruthGuard AI</title><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}
-</head><body>{NAVBAR(credits)}
-<div class="container">
-<h1 style="text-align:center;color:#00ff88">Cleaning</h1>
-<p class="{msg_class}">{message}</p>
-{download_link}
-<form method="post" enctype="multipart/form-data">
-<label><b>Upload CSV/TXT File:</b></label><input type="file" name="file" accept=".csv,.txt" {disabled}>
-<label><b>Or Paste Data Here:</b></label><textarea name="text_data" rows="12" placeholder="Paste up to 5000 rows..." {disabled}></textarea>
-<button type="submit" class="btn" {disabled}>CLEAN DATA</button>
-</form></div></body></html>"""
-
+def HOME_PAGE(credits): return f"<!DOCTYPE html><html><head><title>TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(credits)}<div class=container style=text-align:center><div style=font-size:5em;margin:20px 0>🛡️</div><h1 style=color:#00ff88>TruthGuard AI</h1><p style=color:#aaa;font-size:1.2em>AI Powered CSV & Text Cleaning</p><p style=color:#00ff88>Handles 5000+ rows instantly • 1 Credit = 1 Row</p><p style=color:#00ff88;font-size:1.1em>New Users Get {NEW_USER_CREDITS} Free Credits</p><div style=margin-top:40px><a href=/clean class=btn>CLEAN DATA</a></div></div></body></html>"
+def CLEAN_PAGE(credits, message="", msg_class="", download_link="", disabled=""): return f"<!DOCTYPE html><html><head><title>Cleaning - TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(credits)}<div class=container><h1 style=text-align:center;color:#00ff88>Cleaning</h1><p class={msg_class}>{message}</p>{download_link}<form method=post enctype=multipart/form-data><label><b>Upload CSV/TXT File:</b></label><input type=file name=file accept=.csv,.txt {disabled}><label><b>Or Paste Data Here:</b></label><textarea name=text_data rows=12 placeholder='Paste up to 5000 rows...' {disabled}></textarea><button type=submit class=btn {disabled}>CLEAN DATA</button></form></div></body></html>"
 def PRICING_PAGE(credits):
     cards = ""
     for key, plan in PLANS.items():
-        cards += f"""<div class="card">
-<h2>{plan['name']}</h2>
-<div class="price">₦{plan['price']:,}</div>
-<p>{plan['credits']:,} Credits</p>
-<a href="/checkout/{key}" class="btn">Buy Now</a>
-</div>"""
-    return f"""<!DOCTYPE html><html><head><title>Pricing - TruthGuard AI</title><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}
-</head><body>{NAVBAR(credits)}
-<div class="container">
-<h1 style="text-align:center;color:#00ff88">Choose Your Plan</h1>
-<p style="text-align:center;color:#aaa">Pay once. Use forever. 1 Credit = 1 Row Cleaned</p>
-<div class="grid">{cards}</div>
-</div></body></html>"""
-
+        cards += f"""<div class=card><h2>{plan['name']}</h2><div class=price>₦{plan['price']:,}</div><p>{plan['credits']:,} Credits</p><a href=/checkout/{key} class=btn>Buy Now</a></div>"""
+    return f"<!DOCTYPE html><html><head><title>Pricing - TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(credits)}<div class=container><h1 style=text-align:center;color:#00ff88>Choose Your Plan</h1><p style=text-align:center;color:#aaa>Pay once. Use forever. 1 Credit = 1 Row Cleaned</p><div class=grid>{cards}</div></div></body></html>"
 def CHECKOUT_PAGE(credits, plan_key):
     plan = PLANS[plan_key]
-    return f"""<!DOCTYPE html><html><head><title>Checkout - TruthGuard AI</title><meta name="viewport" content="width=device-width, initial-scale=1.0">{CSS}
-</head><body>{NAVBAR(credits)}
-<div class="container" style="max-width:500px">
-<h1 style="text-align:center;color:#00ff88">Complete Payment</h1>
-<div class="card">
-<h2>{plan['name']} Plan</h2>
-<div class="price">₦{plan['price']:,}</div>
-<p>{plan['credits']:,} Credits</p>
-<hr style="border-color:#333;margin:20px 0">
-<h3 style="text-align:center">Choose Payment Method</h3>
-<form method="post" action="/pay">
-<input type="hidden" name="plan" value="{plan_key}">
-<button class="btn" name="method" value="card">Pay with Card</button>
-<button class="btn btn-secondary" name="method" value="transfer">Pay with Transfer</button>
-<button class="btn btn-secondary" name="method" value="bank">Pay with Bank</button>
-<button class="btn btn-secondary" name="method" value="ussd">Pay with USSD</button>
-</form>
-<br><a href="/pricing" style="color:#00ff88">← Back to Plans</a>
-</div>
-<p style="text-align:center;font-size:0.9em;color:#555">Secured by Paystack Live</p>
-</div></body></html>"""
+    return f"<!DOCTYPE html><html><head><title>Checkout - TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(credits)}<div class=container style=max-width:500px><h1 style=text-align:center;color:#00ff88>Complete Payment</h1><div class=card><h2>{plan['name']} Plan</h2><div class=price>₦{plan['price']:,}</div><p>{plan['credits']:,} Credits</p><hr style=border-color:#333;margin:20px 0><h3 style=text-align:center>Choose Payment Method</h3><form method=post action=/pay><input type=hidden name=plan value={plan_key}><button class=btn name=method value=card>Pay with Card</button><button class=btn btn-secondary name=method value=transfer>Pay with Transfer</button><button class=btn btn-secondary name=method value=bank>Pay with Bank</button><button class=btn btn-secondary name=method value=ussd>Pay with USSD</button></form><br><a href=/pricing style=color:#00ff88>← Back to Plans</a></div></div></body></html>"
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -203,7 +149,7 @@ async def pricing(request: Request):
     response.set_cookie("tg_session", session_id)
     return response
 
-@app.get("/checkout/{plan_key}", response_class=HTMLResponse) # NEW PAGE
+@app.get("/checkout/{plan_key}", response_class=HTMLResponse)
 async def checkout(request: Request, plan_key: str):
     session_id = get_session(request)
     if plan_key not in PLANS: return RedirectResponse("/pricing")
@@ -214,9 +160,40 @@ async def checkout(request: Request, plan_key: str):
 @app.post("/pay")
 async def pay(request: Request, plan: str = Form(...), method: str = Form(...)):
     session_id = get_session(request)
-    # TODO: INTEGRATE PAYSTACK LIVE KEY HERE
-    USERS[session_id] = get_credits(session_id) + PLANS[plan]["credits"]
-    save_users(USERS)
+    plan_data = PLANS[plan]
+    amount = plan_data["price"] * 100 # Paystack uses kobo
+    
+    headers = {"Authorization": f"Bearer {PAYSTACK_LIVE_KEY}", "Content-Type": "application/json"}
+    data = {
+        "amount": amount,
+        "email": f"{session_id}@truthguard.ai", # Use session as email
+        "currency": "NGN",
+        "channels": [method], # card, bank_transfer, bank, ussd
+        "callback_url": "https://your-app.railway.app/verify",
+        "metadata": {"session_id": session_id, "credits": plan_data["credits"]}
+    }
+    
+    res = requests.post("https://api.paystack.co/transaction/initialize", headers=headers, json=data)
+    response_data = res.json()
+    
+    if response_data["status"]:
+        return RedirectResponse(url=response_data["data"]["authorization_url"], status_code=303)
+    else:
+        return RedirectResponse(url="/pricing", status_code=303)
+
+@app.get("/verify")
+async def verify(request: Request, reference: str):
+    headers = {"Authorization": f"Bearer {PAYSTACK_LIVE_KEY}"}
+    res = requests.get(f"https://api.paystack.co/transaction/verify/{reference}", headers=headers)
+    data = res.json()
+    
+    if data["status"] and data["data"]["status"] == "success":
+        metadata = data["data"]["metadata"]
+        session_id = metadata["session_id"]
+        credits = int(metadata["credits"])
+        USERS[session_id] = get_credits(session_id) + credits
+        save_users(USERS)
+    
     return RedirectResponse(url="/pricing", status_code=303)
 
 @app.get("/download/{b64_data}")
