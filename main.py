@@ -1,226 +1,243 @@
-banananas are yellow
-recieve email today
-teh quick brown fox
-adress: 123 main st
-seperate this data
-data  data  data
-banana
-banana
-BANANA
-Banana
-empty,,
-,,,
-   lots    of    spaces   
-NULL
-None
-nan
-na
-N/A
-duplicate row
-duplicate row
-duplicate row
-duplicate row
-duplicate row
-test@example.com
-test@  example.com
-test@example .com
-12345
-12 3 4 5
-phone: 08012345678
-phone:080 1234 5678
-phone:0801234 5678
-name: john  doe
-name:John Doe
-name:   JOHN    DOE   
-name:john doe
-price: $100
-price:$  100
-price: 100 
-price:$100.00
-date: 2024-01-01
-date:2024/01/01
-date: 2024 01 01
-bad data here
-bad data here
-more   bad   data
-clean  me  please
-clean me please
-final test row
-final test row
-final test row
-user1@email.com
-user2 @email.com
-user3@email .com
-amount: 5000
-amount:5000
-amount: 5 000
-ref: ABC123
-ref:ABC 123
-ref: ABC 123
-order 001
-order001
-order 001
-address: lagos nigeria
-adress: lagos nigeria
-addres: lagos nigeria
-city: onitsha
-city:onitsha
-city:  ONITSHA  
-state: anambra
-state:ANAMBRA
-state:  Anambra 
-country: nigeria
-country:NIGERIA
-country:  Nigeria
-product: iphone 15
-product:iphone15
-product:  iPhone 15
-qty: 2
-qty:2
-qty:  2
-total: 150000
-total:150000
-total:  150 000
-note: urgent delivery
-note:urgent  delivery
-note:  URGENT DELIVERY
-row 61
-row 62
-row 63
-row 64
-row 65
-row 66
-row 67
-row 68
-row 69
-row 70
-row 71
-row 72
-row 73
-row 74
-row 75
-row 76
-row 77
-row 78
-row 79
-row 80
-row 81
-row 82
-row 83
-row 84
-row 85
-row 86
-row 87
-row 88
-row 89
-row 90
-row 91
-row 92
-row 93
-row 94
-row 95
-row 96
-row 97
-row 98
-row 99
-row 100
-row 101
-row 102
-row 103
-row 104
-row 105
-row 106
-row 107
-row 108
-row 109
-row 110
-row 111
-row 112
-row 113
-row 114
-row 115
-row 116
-row 117
-row 118
-row 119
-row 120
-row 121
-row 122
-row 123
-row 124
-row 125
-row 126
-row 127
-row 128
-row 129
-row 130
-row 131
-row 132
-row 133
-row 134
-row 135
-row 136
-row 137
-row 138
-row 139
-row 140
-row 141
-row 142
-row 143
-row 144
-row 145
-row 146
-row 147
-row 148
-row 149
-row 150
-row 151
-row 152
-row 153
-row 154
-row 155
-row 156
-row 157
-row 158
-row 159
-row 160
-row 161
-row 162
-row 163
-row 164
-row 165
-row 166
-row 167
-row 168
-row 169
-row 170
-row 171
-row 172
-row 173
-row 174
-row 175
-row 176
-row 177
-row 178
-row 179
-row 180
-row 181
-row 182
-row 183
-row 184
-row 185
-row 186
-row 187
-row 188
-row 189
-row 190
-row 191
-row 192
-row 193
-row 194
-row 195
-row 196
-row 197
-row 198
-row 199
-row 200
+from fastapi import FastAPI, Form, UploadFile, File, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+import pandas as pd
+import io
+import uuid
+import base64
+import re
+import json
+import os
+import requests
+
+app = FastAPI(title="TruthGuard AI")
+
+DB_FILE = "users.json"
+NEW_USER_CREDITS = 500
+PAYSTACK_LIVE_KEY = os.getenv("PAYSTACK_LIVE_KEY")
+
+PLANS = {
+    "500": {"price": 7000, "credits": 500, "name": "Starter"},
+    "1000": {"price": 50000, "credits": 1000, "name": "Pro"},
+    "10000": {"price": 75000, "credits": 10000, "name": "Business"},
+    "20000": {"price": 150000, "credits": 20000, "name": "Enterprise"}
+}
+
+def load_users():
+    try:
+        if os.path.exists(DB_FILE):
+            with open(DB_FILE, "r") as f: return json.load(f)
+    except: pass
+    return {}
+
+def save_users(users):
+    try:
+        with open(DB_FILE, "w") as f: json.dump(users, f)
+    except: pass
+
+USERS = load_users()
+
+def get_session(request: Request):
+    session_id = request.cookies.get("tg_session")
+    if not session_id:
+        session_id = str(uuid.uuid4())
+    if session_id not in USERS:
+        USERS[session_id] = NEW_USER_CREDITS
+        save_users(USERS)
+    return session_id
+
+def get_credits(session_id):
+    global USERS
+    USERS = load_users()
+    return USERS.get(session_id, NEW_USER_CREDITS)
+
+def use_credits(session_id, amount):
+    global USERS
+    USERS = load_users()
+    if session_id in USERS and USERS[session_id] >= amount:
+        USERS[session_id] -= amount
+        save_users(USERS)
+        return True
+    return False
+
+SPELL_DICT = {"banananas": "bananas", "recieve": "receive", "teh": "the", "adress": "address", "seperate": "separate", "addres": "address"}
+
+def clean_text(text):
+    if pd.isna(text): return ""
+    text = str(text).strip().lower()
+    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r'\s*:\s*', ': ', text)
+
+    words = text.split()
+    cleaned_words = []
+    for w in words:
+        w_check = w.replace(':', '').replace('@', '').replace('/', '').replace('.', '')
+        cleaned_words.append(SPELL_DICT.get(w_check, w))
+
+    final_words = [cleaned_words[i] for i in range(len(cleaned_words)) if i == 0 or cleaned_words[i]!= cleaned_words[i-1]]
+    return " ".join(final_words).strip()
+
+def normalize_for_fingerprint(text):
+    text = text.lower().strip()
+
+    # Remove common keys before dedup: address:, phone:, name:, etc
+    text = re.sub(r'^(address|phone|name|price|date|amount|ref|order|city|state|country|product|qty|total|note)\s*:?\s*', '', text)
+
+    # Normalize emails
+    text = re.sub(r'\s*@\s*', '@', text)
+    text = re.sub(r'\s*\.\s*', '.', text)
+
+    # If it's mostly digits, return only digits - for phones and dates
+    digits = re.sub(r'\D', '', text)
+    if len(digits) >= 10: return digits
+    if len(digits) >= 6: return digits
+
+    # Clean prices
+    text = re.sub(r'[\$\,]', '', text)
+    text = re.sub(r'\.00\b', '', text)
+
+    return text
+
+def smart_clean(df: pd.DataFrame):
+    df = df.astype(str)
+    for col in df.columns: df[col] = df[col].apply(clean_text)
+
+    # Remove garbage + single words + na
+    df = df[~df['data'].isin(['', 'nan', 'none', 'null', 'n/a', 'data', 'na'])]
+    df = df[df['data'].str.len() > 2] # min 3 chars
+
+    # Normalize THEN fingerprint for nuclear dedup
+    df['normalized'] = df['data'].apply(normalize_for_fingerprint)
+    df['fingerprint'] = df['normalized'].str.replace(r'[^a-z0-9@]', '', regex=True)
+    df = df.drop_duplicates(subset=['fingerprint'], keep='first')
+    df = df.drop(columns=['normalized', 'fingerprint'])
+
+    return df
+
+def NAVBAR(credits):
+    return f"""<div style="background:#0d0d0d;padding:15px 20px;border-bottom:2px solid #00ff88;position:sticky;top:0;z-index:100">
+<div style="max-width:900px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap">
+<div style="display:flex;align-items:center;gap:10px"><span style="font-size:2em">🛡️</span><b style="font-size:1.3em;color:#00ff88">TruthGuard AI</b></div>
+<div style="display:flex;gap:25px;align-items:center;flex-wrap:wrap">
+<a href="/" style="color:#fff;text-decoration:none;font-weight:bold">Home</a>
+<a href="/clean" style="color:#fff;text-decoration:none;font-weight:bold">Cleaning</a>
+<a href="/pricing" style="color:#fff;text-decoration:none;font-weight:bold">Pricing</a>
+<div style="background:#1a1a1a;padding:8px 18px;border-radius:25px;border:1px solid #333">Credits: {credits}</div>
+</div></div></div>"""
+
+CSS = """<style>
+body{background:#0a0a0a;color:#e0e0e0;font-family:Arial, sans-serif;margin:0;padding:0}
+.container{max-width:1000px;margin:0 auto;padding:30px 20px}
+.btn{background:#00ff88;color:#000;padding:16px 25px;border-radius:10px;text-decoration:none;font-weight:bold;display:inline-block;font-size:1em;border:none;cursor:pointer;width:100%;margin:8px 0}
+.btn:hover{background:#00dd77}
+.btn-secondary{background:#1a1a1a;color:#fff;border:1px solid #333}
+input,textarea{width:100%;padding:14px;margin:12px 0;border-radius:10px;border:1px solid #333;background:#111;color:#fff;box-sizing:border-box;font-size:1em}
+.error{color:#ff4444;font-weight:bold;text-align:center;padding:12px;background:#1a0000;border:1px solid #ff4444;border-radius:8px;margin:15px 0}
+.success{color:#00ff88;font-weight:bold;text-align:center;padding:12px;background:#001a00;border:1px solid #00ff88;border-radius:8px;margin:15px 0}
+.download{background:#00ff88;color:#000;padding:14px;text-align:center;border-radius:10px;text-decoration:none;display:block;font-weight:bold;margin:15px 0}
+.card{background:#111;padding:30px;border-radius:15px;border:2px solid #333;text-align:center}
+.grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:20px;margin-top:20px}
+.price{font-size:2.5em;font-weight:bold;color:#00ff88;margin:10px 0}
+</style>"""
+
+def HOME_PAGE(credits): return f"<!DOCTYPE html><html><head><title>TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(credits)}<div class=container style=text-align:center><div style=font-size:5em;margin:20px 0>🛡️</div><h1 style=color:#00ff88>TruthGuard AI</h1><p style=color:#aaa;font-size:1.2em>AI Powered CSV & Text Cleaning</p><p style=color:#00ff88>Handles 5000+ rows instantly • 1 Credit = 1 Row</p><p style=color:#00ff88;font-size:1.1em>New Users Get {NEW_USER_CREDITS} Free Credits</p><div style=margin-top:40px><a href=/clean class=btn>CLEAN DATA</a></div></div></body></html>"
+def CLEAN_PAGE(credits, message="", msg_class="", download_link="", disabled=""): return f"<!DOCTYPE html><html><head><title>Cleaning - TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(credits)}<div class=container><h1 style=text-align:center;color:#00ff88>Cleaning</h1><p class={msg_class}>{message}</p>{download_link}<form method=post enctype=multipart/form-data><label><b>Upload CSV/TXT File:</b></label><input type=file name=file accept=.csv,.txt {disabled}><label><b>Or Paste Data Here:</b></label><textarea name=text_data rows=12 placeholder='Paste up to 5000 rows...' {disabled}></textarea><button type=submit class=btn {disabled}>CLEAN DATA</button></form></div></body></html>"
+def PRICING_PAGE(credits):
+    cards = ""
+    for key, plan in PLANS.items():
+        cards += f"""<div class=card><h2>{plan['name']}</h2><div class=price>₦{plan['price']:,}</div><p>{plan['credits']:,} Credits</p><a href=/checkout/{key} class=btn>Buy Now</a></div>"""
+    return f"<!DOCTYPE html><html><head><title>Pricing - TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(credits)}<div class=container><h1 style=text-align:center;color:#00ff88>Choose Your Plan</h1><p style=text-align:center;color:#aaa>Pay once. Use forever. 1 Credit = 1 Row Cleaned</p><div class=grid>{cards}</div></div></body></html>"
+def CHECKOUT_PAGE(credits, plan_key):
+    plan = PLANS[plan_key]
+    return f"<!DOCTYPE html><html><head><title>Checkout - TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(credits)}<div class=container style=max-width:500px><h1 style=text-align:center;color:#00ff88>Complete Payment</h1><div class=card><h2>{plan['name']} Plan</h2><div class=price>₦{plan['price']:,}</div><p>{plan['credits']:,} Credits</p><hr style=border-color:#333;margin:20px 0><h3 style=text-align:center>Choose Payment Method</h3><form method=post action=/pay><input type=hidden name=plan value={plan_key}><button class=btn name=method value=card>Pay with Card</button><button class=btn btn-secondary name=method value=bank>Pay with Bank</button><button class=btn btn-secondary name=method value=ussd>Pay with USSD</button><button class=btn btn-secondary name=method value=qr>Pay with QR</button></form><br><a href=/pricing style=color:#00ff88>← Back to Plans</a></div></div></body></html>"
+
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    session_id = get_session(request)
+    response = HTMLResponse(HOME_PAGE(get_credits(session_id)))
+    response.set_cookie("tg_session", session_id)
+    return response
+
+@app.get("/clean", response_class=HTMLResponse)
+async def clean_page(request: Request):
+    session_id = get_session(request)
+    credits = get_credits(session_id)
+    disabled = "disabled" if credits <= 0 else ""
+    message = "kindly buy credits to continue" if credits <= 0 else ""
+    response = HTMLResponse(CLEAN_PAGE(credits, message, "error" if credits <= 0 else "", disabled))
+    response.set_cookie("tg_session", session_id)
+    return response
+
+@app.post("/clean", response_class=HTMLResponse)
+async def clean_data(request: Request, file: UploadFile = File(None), text_data: str = Form(None)):
+    session_id = get_session(request)
+    credits = get_credits(session_id)
+    if credits <= 0: return HTMLResponse(CLEAN_PAGE(0, "kindly buy credits to continue", "error", "", "disabled"))
+    if not file and not text_data: return HTMLResponse(CLEAN_PAGE(credits, "Please upload a file or paste data first", "error", "", ""))
+    try:
+        if file and file.filename: df = pd.read_csv(file.file, header=None, names=["data"], on_bad_lines='skip', low_memory=False)
+        else: df = pd.read_csv(io.StringIO(text_data), header=None, names=["data"], on_bad_lines='skip', low_memory=False)
+        rows = len(df)
+        if credits < rows: return HTMLResponse(CLEAN_PAGE(credits, f"Not enough credits. This will cost {rows} credits. You have {credits}.", "error", "", ""))
+        df_cleaned = smart_clean(df)
+        use_credits(session_id, rows)
+        new_credits = get_credits(session_id)
+        output = io.StringIO()
+        df_cleaned.to_csv(output, index=False, header=False)
+        b64_data = base64.b64encode(output.getvalue().encode()).decode()
+        download_link = f'<a href="/download/{b64_data}" class="download">⬇️ Download Cleaned CSV - {len(df_cleaned)} rows</a>'
+        message = f"✅ Cleaned {rows} rows! {rows} Credits Used. You have {new_credits} left."
+        return HTMLResponse(CLEAN_PAGE(new_credits, message, "success", download_link, ""))
+    except Exception as e: return HTMLResponse(CLEAN_PAGE(credits, f"Error: {str(e)}", "error", "", ""))
+
+@app.get("/pricing", response_class=HTMLResponse)
+async def pricing(request: Request):
+    session_id = get_session(request)
+    response = HTMLResponse(PRICING_PAGE(get_credits(session_id)))
+    response.set_cookie("tg_session", session_id)
+    return response
+
+@app.get("/checkout/{plan_key}", response_class=HTMLResponse)
+async def checkout(request: Request, plan_key: str):
+    session_id = get_session(request)
+    if plan_key not in PLANS: return RedirectResponse("/pricing")
+    response = HTMLResponse(CHECKOUT_PAGE(get_credits(session_id), plan_key))
+    response.set_cookie("tg_session", session_id)
+    return response
+
+@app.post("/pay")
+async def pay(request: Request, plan: str = Form(...), method: str = Form(...)):
+    session_id = get_session(request)
+    plan_data = PLANS[plan]
+    amount = plan_data["price"] * 100
+    headers = {"Authorization": f"Bearer {PAYSTACK_LIVE_KEY}", "Content-Type": "application/json"}
+    data = {
+        "amount": amount, "email": f"{session_id}@truthguard.ai", "currency": "NGN",
+        "channels": [method], "callback_url": "https://your-app.railway.app/verify",
+        "metadata": {"session_id": session_id, "credits": plan_data["credits"]}
+    }
+    res = requests.post("https://api.paystack.co/transaction/initialize", headers=headers, json=data)
+    response_data = res.json()
+    if response_data["status"]:
+        return RedirectResponse(url=response_data["data"]["authorization_url"], status_code=303)
+    else:
+        return RedirectResponse(url="/pricing", status_code=303)
+
+@app.get("/verify")
+async def verify(request: Request, reference: str):
+    headers = {"Authorization": f"Bearer {PAYSTACK_LIVE_KEY}"}
+    res = requests.get(f"https://api.paystack.co/transaction/verify/{reference}", headers=headers)
+    data = res.json()
+    if data["status"] and data["data"]["status"] == "success":
+        metadata = data["data"]["metadata"]
+        session_id = metadata["session_id"]
+        credits = int(metadata["credits"])
+        global USERS
+        USERS = load_users()
+        USERS[session_id] = get_credits(session_id) + credits
+        save_users(USERS)
+    return RedirectResponse(url="/pricing", status_code=303)
+
+@app.get("/download/{b64_data}")
+async def download(b64_data: str):
+    data = base64.b64decode(b64_data).decode()
+    return StreamingResponse(io.StringIO(data), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=truthguard_cleaned.csv"})
