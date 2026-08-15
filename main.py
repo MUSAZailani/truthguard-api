@@ -59,7 +59,7 @@ def use_credits(session_id, amount):
         return True
     return False
 
-SPELL_DICT = {"banananas": "bananas", "recieve": "receive", "teh": "the", "adress": "address", "seperate": "separate"}
+SPELL_DICT = {"banananas": "bananas", "recieve": "receive", "teh": "the", "adress": "address", "seperate": "separate", "addres": "address"}
 
 def clean_text(text):
     if pd.isna(text): return ""
@@ -70,19 +70,22 @@ def clean_text(text):
     words = text.split()
     cleaned_words = []
     for w in words:
-        w_check = w.lower().replace(':', '').replace('@', '').replace('/', '') # check dict clean
+        w_check = w.lower().replace(':', '').replace('@', '').replace('/', '')
         cleaned_words.append(SPELL_DICT.get(w_check, w))
     
     # remove duplicate words
     final_words = [cleaned_words[i] for i in range(len(cleaned_words)) if i == 0 or cleaned_words[i].lower()!= cleaned_words[i-1].lower()]
     
-    return " ".join(final_words).strip()
+    return " ".join(final_words).strip().lower() # LOWERCASE FOR DEDUP
 
 def smart_clean(df: pd.DataFrame):
     df = df.astype(str)
     for col in df.columns: df[col] = df[col].apply(clean_text)
-    df = df[df!= ''] # remove empty rows
-    df = df.drop_duplicates() # remove duplicate rows
+    df = df[df!= ''] # remove empty
+    df = df[df!= 'nan'] # remove nan strings
+    df = df[df!= 'none'] # remove none strings
+    df = df.drop_duplicates() # exact dedup
+    df = df.drop_duplicates(subset=['data'], keep='first') # case-insensitive dedup
     return df
 
 def NAVBAR(credits):
