@@ -8,13 +8,13 @@ import re
 import json
 import os
 import requests
-import sqlite3
+import psycopg2
 
 app = FastAPI(title="TruthGuard AI")
 
-DB_FILE = "truthguard.db"
 NEW_USER_CREDITS = 500
 PAYSTACK_LIVE_KEY = os.getenv("PAYSTACK_LIVE_KEY")
+DATABASE_URL = os.getenv("DATABASE_URL") # Railway gives us this automatically
 BASE_URL = "https://truthguard-api-production-d58a.up.railway.app"
 
 PLANS = {
@@ -24,9 +24,13 @@ PLANS = {
     "20000": {"price": 150000, "credits": 20000, "name": "Enterprise"}
 }
 
-# CREATE DATABASE ONCE
+# CREATE TABLE ONCE
+def get_db():
+    conn = psycopg2.connect(DATABASE_URL)
+    return conn
+
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users
                  (session_id TEXT PRIMARY KEY, credits INTEGER)''')
@@ -36,26 +40,26 @@ def init_db():
 init_db()
 
 def get_credits(session_id):
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT credits FROM users WHERE session_id=?", (session_id,))
+    c.execute("SELECT credits FROM users WHERE session_id=%s", (session_id,))
     result = c.fetchone()
     if result:
         credits = result[0]
     else:
         credits = NEW_USER_CREDITS
-        c.execute("INSERT INTO users (session_id, credits) VALUES (?,?)", (session_id, credits))
+        c.execute("INSERT INTO users (session_id, credits) VALUES (%s,%s)", (session_id, credits))
         conn.commit()
     conn.close()
     return credits
 
 def use_credits(session_id, amount):
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db()
     c = conn.cursor()
     current = get_credits(session_id)
     if current >= amount:
         new_credits = current - amount
-        c.execute("UPDATE users SET credits=? WHERE session_id=?", (new_credits, session_id))
+        c.execute("UPDATE users SET credits=%s WHERE session_id=%s", (new_credits, session_id))
         conn.commit()
         conn.close()
         return True
@@ -63,11 +67,11 @@ def use_credits(session_id, amount):
     return False
 
 def add_credits(session_id, amount):
-    conn = sqlite3.connect(DB_FILE)
+    conn = get_db()
     c = conn.cursor()
     current = get_credits(session_id)
     new_credits = current + amount
-    c.execute("UPDATE users SET credits=? WHERE session_id=?", (new_credits, session_id))
+    c.execute("UPDATE users SET credits=%s WHERE session_id=%s", (new_credits, session_id))
     conn.commit()
     conn.close()
 
@@ -134,7 +138,7 @@ def PRICING_PAGE(credits):
     cards = ""
     for key, plan in PLANS.items():
         cards += f"""<div class=card><h2>{plan['name']}</h2><div class=price>₦{plan['price']:,}</div><p>{plan['credits']:,} Credits</p><a href=/checkout/{key} class=btn>Buy Now</a></div>"""
-    return f"<!DOCTYPE html><html><head><title>Pricing - TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(credits)}<div class=container><h1 style=text-align:center;color:#00ff88>Choose Your Plan</h1><p style=text-align:center;color:#aaa>Pay once. Use forever. 1 Credit = 1 Row Cleaned</p><div class=grid>{cards}</div></div></body></html>"
+    return f"<!DOCTYPE html><html><head><title>Pricing - TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(credits)}<div class=container><h1 style=text-align:center;color:#00ff88>Choose Your Plan</h1><p style=text-align:center;color:#aaa>Pay once. Use forever. 1 Credit = 1 Row Cleaned</p><div class=grid>{cards}</div></body></html>"
 def CHECKOUT_PAGE(credits, plan_key):
     plan = PLANS[plan_key]
     return f"<!DOCTYPE html><html><head><title>Checkout - TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(credits)}<div class=container style=max-width:500px><h1 style=text-align:center;color:#00ff88>Complete Payment</h1><div class=card><h2>{plan['name']} Plan</h2><div class=price>₦{plan['price']:,}</div><p>{plan['credits']:,} Credits</p><hr style=border-color:#333;margin:20px 0><h3 style=text-align:center>Choose Payment Method</h3><form method=post action=/pay><input type=hidden name=plan value={plan_key}><button class=btn name=method value=card>Pay with Card</button><button class=btn btn-secondary name=method value=bank>Pay with Bank</button><button class=btn btn-secondary name=method value=ussd>Pay with USSD</button><button class=btn btn-secondary name=method value=qr>Pay with QR</button></form><br><a href=/pricing style=color:#00ff88>← Back to Plans</a></div></div></body></html>"
