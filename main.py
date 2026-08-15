@@ -78,22 +78,22 @@ def clean_text(text):
 
 def normalize_for_fingerprint(text):
     text = text.lower().strip()
-    # If key: value format, only use the value for dedup
-    if ':' in text:
-        parts = text.split(':', 1)
-        text = parts[1].strip()
+
+    # Remove common keys before dedup: address:, phone:, name:, etc
+    text = re.sub(r'^(address|phone|name|price|date|amount|ref|order|city|state|country|product|qty|total|note)\s*:?\s*', '', text)
 
     # Normalize emails
     text = re.sub(r'\s*@\s*', '@', text)
     text = re.sub(r'\s*\.\s*', '.', text)
-    # Normalize phones: only digits
+
+    # If it's mostly digits, return only digits - for phones and dates
     digits = re.sub(r'\D', '', text)
-    if len(digits) >= 10: text = digits
-    # Normalize prices: remove $, and.00
+    if len(digits) >= 10: return digits
+    if len(digits) >= 6: return digits
+
+    # Clean prices
     text = re.sub(r'[\$\,]', '', text)
     text = re.sub(r'\.00\b', '', text)
-    # Normalize dates: only digits if 6+ digits
-    if len(digits) >= 6: text = digits
 
     return text
 
@@ -101,11 +101,11 @@ def smart_clean(df: pd.DataFrame):
     df = df.astype(str)
     for col in df.columns: df[col] = df[col].apply(clean_text)
 
-    # Remove garbage
-    df = df[~df['data'].isin(['', 'nan', 'none', 'null', 'n/a', 'data'])]
-    df = df[df['data'].str.len() > 1]
+    # Remove garbage + single words + na
+    df = df[~df['data'].isin(['', 'nan', 'none', 'null', 'n/a', 'data', 'na'])]
+    df = df[df['data'].str.len() > 2] # min 3 chars
 
-    # Normalize THEN fingerprint for aggressive dedup
+    # Normalize THEN fingerprint for nuclear dedup
     df['normalized'] = df['data'].apply(normalize_for_fingerprint)
     df['fingerprint'] = df['normalized'].str.replace(r'[^a-z0-9@]', '', regex=True)
     df = df.drop_duplicates(subset=['fingerprint'], keep='first')
