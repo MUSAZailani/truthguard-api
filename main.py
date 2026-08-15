@@ -13,7 +13,7 @@ app = FastAPI(title="TruthGuard AI")
 
 DB_FILE = "users.json"
 NEW_USER_CREDITS = 500
-PAYSTACK_LIVE_KEY = "sk_live_YOUR_LIVE_KEY_HERE" # <-- PUT YOUR REAL LIVE KEY HERE
+PAYSTACK_LIVE_KEY = os.getenv("PAYSTACK_LIVE_KEY") # SAFE - READ FROM RAILWAY
 
 PLANS = {
     "500": {"price": 7000, "credits": 500, "name": "Starter"},
@@ -49,7 +49,7 @@ def use_credits(session_id, amount):
         return True
     return False
 
-SPELL_DICT = {"banananas": "bananas", "recieve": "receive", "teh": "the", "adress": "address"}
+SPELL_DICT = {"banananas": "bananas", "recieve": "receive", "teh": "the", "adress": "address", "seperate": "separate"}
 
 def clean_text(text):
     if pd.isna(text): return ""
@@ -161,15 +161,15 @@ async def checkout(request: Request, plan_key: str):
 async def pay(request: Request, plan: str = Form(...), method: str = Form(...)):
     session_id = get_session(request)
     plan_data = PLANS[plan]
-    amount = plan_data["price"] * 100 # Paystack uses kobo
+    amount = plan_data["price"] * 100
     
     headers = {"Authorization": f"Bearer {PAYSTACK_LIVE_KEY}", "Content-Type": "application/json"}
     data = {
         "amount": amount,
-        "email": f"{session_id}@truthguard.ai", # Use session as email
+        "email": f"{session_id}@truthguard.ai",
         "currency": "NGN",
-        "channels": [method], # card, bank_transfer, bank, ussd
-        "callback_url": "https://your-app.railway.app/verify",
+        "channels": [method],
+        "callback_url": "https://your-app.railway.app/verify", # <-- CHANGE THIS TO YOUR RAILWAY URL
         "metadata": {"session_id": session_id, "credits": plan_data["credits"]}
     }
     
