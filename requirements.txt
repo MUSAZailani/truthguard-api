@@ -1,5 +1,5 @@
-fastapi
-uvicorn
-pandas
-requests
-python-multipart
+    fastapi
+    uvicorn
+    httpx
+    python-multipart
+    python-dotenv
