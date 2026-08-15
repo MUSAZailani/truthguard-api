@@ -32,7 +32,7 @@ def load_users():
 def save_users(users):
     try:
         with open(DB_FILE, "w") as f: json.dump(users, f)
-    except: pass # Railway may block writes, but we try
+    except: pass
 
 USERS = load_users()
 
@@ -47,12 +47,12 @@ def get_session(request: Request):
 
 def get_credits(session_id): 
     global USERS
-    USERS = load_users() # RELOAD EVERY TIME for Railway
+    USERS = load_users()
     return USERS.get(session_id, NEW_USER_CREDITS)
 
 def use_credits(session_id, amount):
     global USERS
-    USERS = load_users() # RELOAD FIRST
+    USERS = load_users()
     if session_id in USERS and USERS[session_id] >= amount:
         USERS[session_id] -= amount
         save_users(USERS)
@@ -63,19 +63,19 @@ SPELL_DICT = {"banananas": "bananas", "recieve": "receive", "teh": "the", "adres
 
 def clean_text(text):
     if pd.isna(text): return ""
-    text = str(text).strip()
-    text = re.sub(r'\s+', ' ', text) # only fix spacing
+    text = str(text).strip().lower() # lowercase for better dedup
+    text = re.sub(r'\s+', ' ', text) # fix multiple spaces
+    text = re.sub(r'\s*:\s*', ': ', text) # standardize key: value
     words = text.split()
-    words = [words[i] for i in range(len(words)) if i == 0 or words[i].lower()!= words[i-1].lower()] # remove repeat words only
-    words = [SPELL_DICT.get(w.lower(), w) for w in words] # fix small typos
-    return " ".join(words)
+    words = [words[i] for i in range(len(words)) if i == 0 or words[i]!= words[i-1]] # remove repeat words
+    words = [SPELL_DICT.get(w, w) for w in words] # fix typos
+    return " ".join(words).strip()
 
 def smart_clean(df: pd.DataFrame):
     df = df.astype(str)
     for col in df.columns: df[col] = df[col].apply(clean_text)
-    df = df.drop_duplicates() # keep this
-    # REMOVED: df.dropna(how='all') <- this was deleting too much
-    df = df.replace('nan', '').replace('None', '')
+    df = df[df!= ''] # remove empty rows
+    df = df.drop_duplicates() # remove duplicate rows
     return df
 
 def NAVBAR(credits):
@@ -144,8 +144,8 @@ async def clean_data(request: Request, file: UploadFile = File(None), text_data:
         rows = len(df)
         if credits < rows: return HTMLResponse(CLEAN_PAGE(credits, f"Not enough credits. This will cost {rows} credits. You have {credits}.", "error", "", ""))
         df_cleaned = smart_clean(df)
-        use_credits(session_id, rows) # DEDUCT BEFORE DOWNLOAD
-        new_credits = get_credits(session_id) # RELOAD TO SHOW CORRECT
+        use_credits(session_id, rows)
+        new_credits = get_credits(session_id)
         output = io.StringIO()
         df_cleaned.to_csv(output, index=False, header=False)
         b64_data = base64.b64encode(output.getvalue().encode()).decode()
