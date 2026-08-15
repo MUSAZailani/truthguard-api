@@ -13,7 +13,7 @@ app = FastAPI(title="TruthGuard AI")
 
 DB_FILE = "users.json"
 NEW_USER_CREDITS = 500
-PAYSTACK_LIVE_KEY = os.getenv("PAYSTACK_LIVE_KEY") # SAFE - READ FROM RAILWAY
+PAYSTACK_LIVE_KEY = os.getenv("PAYSTACK_LIVE_KEY") # READ FROM RAILWAY
 
 PLANS = {
     "500": {"price": 7000, "credits": 500, "name": "Starter"},
@@ -43,7 +43,7 @@ def get_session(request: Request):
 def get_credits(session_id): return USERS.get(session_id, NEW_USER_CREDITS)
 
 def use_credits(session_id, amount):
-    if session_id in USERS and USERS[session_id] >= amount: 
+    if session_id in USERS and USERS[session_id] >= amount:
         USERS[session_id] -= amount
         save_users(USERS)
         return True
@@ -102,7 +102,7 @@ def PRICING_PAGE(credits):
     return f"<!DOCTYPE html><html><head><title>Pricing - TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(credits)}<div class=container><h1 style=text-align:center;color:#00ff88>Choose Your Plan</h1><p style=text-align:center;color:#aaa>Pay once. Use forever. 1 Credit = 1 Row Cleaned</p><div class=grid>{cards}</div></div></body></html>"
 def CHECKOUT_PAGE(credits, plan_key):
     plan = PLANS[plan_key]
-    return f"<!DOCTYPE html><html><head><title>Checkout - TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(credits)}<div class=container style=max-width:500px><h1 style=text-align:center;color:#00ff88>Complete Payment</h1><div class=card><h2>{plan['name']} Plan</h2><div class=price>₦{plan['price']:,}</div><p>{plan['credits']:,} Credits</p><hr style=border-color:#333;margin:20px 0><h3 style=text-align:center>Choose Payment Method</h3><form method=post action=/pay><input type=hidden name=plan value={plan_key}><button class=btn name=method value=card>Pay with Card</button><button class=btn btn-secondary name=method value=transfer>Pay with Transfer</button><button class=btn btn-secondary name=method value=bank>Pay with Bank</button><button class=btn btn-secondary name=method value=ussd>Pay with USSD</button></form><br><a href=/pricing style=color:#00ff88>← Back to Plans</a></div></div></body></html>"
+    return f"<!DOCTYPE html><html><head><title>Checkout - TruthGuard AI</title><meta name=viewport content='width=device-width, initial-scale=1.0'>{CSS}</head><body>{NAVBAR(credits)}<div class=container style=max-width:500px><h1 style=text-align:center;color:#00ff88>Complete Payment</h1><div class=card><h2>{plan['name']} Plan</h2><div class=price>₦{plan['price']:,}</div><p>{plan['credits']:,} Credits</p><hr style=border-color:#333;margin:20px 0><h3 style=text-align:center>Choose Payment Method</h3><form method=post action=/pay><input type=hidden name=plan value={plan_key}><button class=btn name=method value=card>Pay with Card</button><button class=btn btn-secondary name=method value=bank>Pay with Bank</button><button class=btn btn-secondary name=method value=ussd>Pay with USSD</button><button class=btn btn-secondary name=method value=qr>Pay with QR</button></form><br><a href=/pricing style=color:#00ff88>← Back to Plans</a></div><p style=text-align:center;font-size:0.9em;color:#555>Bank Transfer unlocks after business verification</p></div></body></html>"
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
@@ -162,20 +162,20 @@ async def pay(request: Request, plan: str = Form(...), method: str = Form(...)):
     session_id = get_session(request)
     plan_data = PLANS[plan]
     amount = plan_data["price"] * 100
-    
+
     headers = {"Authorization": f"Bearer {PAYSTACK_LIVE_KEY}", "Content-Type": "application/json"}
     data = {
         "amount": amount,
         "email": f"{session_id}@truthguard.ai",
         "currency": "NGN",
-        "channels": [method],
-        "callback_url": "https://your-app.railway.app/verify", # <-- CHANGE THIS TO YOUR RAILWAY URL
+        "channels": [method], # card, bank, ussd, qr
+        "callback_url": "https://your-app.railway.app/verify", # <-- CHANGE TO YOUR RAILWAY URL
         "metadata": {"session_id": session_id, "credits": plan_data["credits"]}
     }
-    
+
     res = requests.post("https://api.paystack.co/transaction/initialize", headers=headers, json=data)
     response_data = res.json()
-    
+
     if response_data["status"]:
         return RedirectResponse(url=response_data["data"]["authorization_url"], status_code=303)
     else:
@@ -186,14 +186,14 @@ async def verify(request: Request, reference: str):
     headers = {"Authorization": f"Bearer {PAYSTACK_LIVE_KEY}"}
     res = requests.get(f"https://api.paystack.co/transaction/verify/{reference}", headers=headers)
     data = res.json()
-    
+
     if data["status"] and data["data"]["status"] == "success":
         metadata = data["data"]["metadata"]
         session_id = metadata["session_id"]
         credits = int(metadata["credits"])
         USERS[session_id] = get_credits(session_id) + credits
         save_users(USERS)
-    
+
     return RedirectResponse(url="/pricing", status_code=303)
 
 @app.get("/download/{b64_data}")
