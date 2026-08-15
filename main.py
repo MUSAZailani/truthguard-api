@@ -41,7 +41,7 @@ def use_credits(session_id, amount):
         return True
     return False
 
-# NEW MODEL - SMARTER SPELL CHECK
+# NEW MODEL - SMARTER CLEANING
 SPELL_DICT = {
     "banananas": "bananas", "recieve": "receive", "teh": "the", "adress": "address",
     "seperate": "separate", "definately": "definitely", "occured": "occurred"
@@ -50,10 +50,10 @@ SPELL_DICT = {
 def clean_text(text):
     if pd.isna(text): return ""
     text = str(text).strip()
-    text = re.sub(r'\s+', ' ', text) # Remove extra spaces
+    text = re.sub(r'\s+', ' ', text)
     words = text.split()
-    words = [words[i] for i in range(len(words)) if i == 0 or words[i].lower()!= words[i-1].lower()] # Remove duplicates
-    words = [SPELL_DICT.get(w.lower(), w) for w in words] # Spell check
+    words = [words[i] for i in range(len(words)) if i == 0 or words[i].lower()!= words[i-1].lower()]
+    words = [SPELL_DICT.get(w.lower(), w) for w in words]
     text = " ".join(words)
     return text
 
@@ -79,16 +79,17 @@ def NAVBAR(credits):
 
 CSS = """<style>
 body{background:#0a0a0a;color:#e0e0e0;font-family:Arial, sans-serif;margin:0;padding:0}
-.container{max-width:800px;margin:0 auto;padding:30px 20px}
-.btn{background:#00ff88;color:#000;padding:16px 35px;border-radius:12px;text-decoration:none;font-weight:bold;display:inline-block;font-size:1.1em;border:none;cursor:pointer;width:100%;margin:8px 0}
+.container{max-width:1000px;margin:0 auto;padding:30px 20px}
+.btn{background:#00ff88;color:#000;padding:14px 25px;border-radius:10px;text-decoration:none;font-weight:bold;display:inline-block;font-size:0.95em;border:none;cursor:pointer;width:100%;margin:5px 0}
 .btn:hover{background:#00dd77}
-.btn-secondary{background:#1a1a1a;color:#fff}
+.btn-secondary{background:#1a1a1a;color:#fff;border:1px solid #333}
 input,textarea{width:100%;padding:14px;margin:12px 0;border-radius:10px;border:1px solid #333;background:#111;color:#fff;box-sizing:border-box;font-size:1em}
 .error{color:#ff4444;font-weight:bold;text-align:center;padding:12px;background:#1a0000;border:1px solid #ff4444;border-radius:8px;margin:15px 0}
 .success{color:#00ff88;font-weight:bold;text-align:center;padding:12px;background:#001a00;border:1px solid #00ff88;border-radius:8px;margin:15px 0}
 .download{background:#00ff88;color:#000;padding:14px;text-align:center;border-radius:10px;text-decoration:none;display:block;font-weight:bold;margin:15px 0}
-.card{background:#111;padding:25px;margin:15px auto;border-radius:15px;border:1px solid #333}
-.grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(250px, 1fr));gap:20px}
+.card{background:#111;padding:25px;border-radius:15px;border:2px solid #333;text-align:center}
+.grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:20px;margin-top:20px}
+.price{font-size:2.2em;font-weight:bold;color:#00ff88;margin:10px 0}
 </style>"""
 
 def HOME_PAGE(credits):
@@ -99,6 +100,7 @@ def HOME_PAGE(credits):
 <h1 style="color:#00ff88">TruthGuard AI</h1>
 <p style="color:#aaa;font-size:1.2em">AI Powered CSV & Text Cleaning</p>
 <p style="color:#00ff88">Handles 5000+ rows instantly • 1 Credit = 1 Row</p>
+<p style="color:#00ff88;font-size:1.1em">New Users Get {NEW_USER_CREDITS} Free Credits</p>
 <div style="margin-top:40px">
 <a href="/clean" class="btn">CLEAN DATA</a>
 </div>
@@ -125,10 +127,11 @@ def PRICING_PAGE(credits):
 <p style="text-align:center;color:#aaa">Pay once. Use forever. 1 Credit = 1 Row Cleaned</p>
 <div class="grid">
 <div class="card">
-<h2 style="text-align:center">100 Credits</h2>
-<h3 style="text-align:center;color:#00ff88;font-size:2em">$10</h3>
+<h2>Starter</h2>
+<div class="price">₦7,000</div>
+<p>500 Credits</p>
 <form method="post" action="/pay">
-<input type="hidden" name="plan" value="100">
+<input type="hidden" name="plan" value="500">
 <button class="btn" name="method" value="card">Pay with Card</button>
 <button class="btn btn-secondary" name="method" value="transfer">Pay with Transfer</button>
 <button class="btn btn-secondary" name="method" value="bank">Pay with Bank</button>
@@ -136,8 +139,9 @@ def PRICING_PAGE(credits):
 </form>
 </div>
 <div class="card">
-<h2 style="text-align:center">1000 Credits</h2>
-<h3 style="text-align:center;color:#00ff88;font-size:2em">$75</h3>
+<h2>Pro</h2>
+<div class="price">₦50,000</div>
+<p>1,000 Credits</p>
 <form method="post" action="/pay">
 <input type="hidden" name="plan" value="1000">
 <button class="btn" name="method" value="card">Pay with Card</button>
@@ -147,10 +151,23 @@ def PRICING_PAGE(credits):
 </form>
 </div>
 <div class="card">
-<h2 style="text-align:center">5000 Credits</h2>
-<h3 style="text-align:center;color:#00ff88;font-size:2em">$300</h3>
+<h2>Business</h2>
+<div class="price">₦75,000</div>
+<p>10,000 Credits</p>
 <form method="post" action="/pay">
-<input type="hidden" name="plan" value="5000">
+<input type="hidden" name="plan" value="10000">
+<button class="btn" name="method" value="card">Pay with Card</button>
+<button class="btn btn-secondary" name="method" value="transfer">Pay with Transfer</button>
+<button class="btn btn-secondary" name="method" value="bank">Pay with Bank</button>
+<button class="btn btn-secondary" name="method" value="ussd">Pay with USSD</button>
+</form>
+</div>
+<div class="card">
+<h2>Enterprise</h2>
+<div class="price">₦150,000</div>
+<p>20,000 Credits</p>
+<form method="post" action="/pay">
+<input type="hidden" name="plan" value="20000">
 <button class="btn" name="method" value="card">Pay with Card</button>
 <button class="btn btn-secondary" name="method" value="transfer">Pay with Transfer</button>
 <button class="btn btn-secondary" name="method" value="bank">Pay with Bank</button>
@@ -221,7 +238,7 @@ async def pricing(request: Request):
 @app.post("/pay")
 async def pay(request: Request, plan: str = Form(...), method: str = Form(...)):
     session_id = get_session(request)
-    # TODO: INTEGRATE PAYSTACK LIVE KEY HERE
+    # TODO: INTEGRATE PAYSTACK LIVE KEY WITH AMOUNT
     USERS[session_id] = get_credits(session_id) + int(plan)
     save_users(USERS)
     return RedirectResponse(url="/pricing", status_code=303)
