@@ -1,6 +1,7 @@
-    fastapi
-    uvicorn
-    python-multipart
-    jinja2
-    pandas
-    requests
+fastapi
+uvicorn
+python-multipart
+jinja2
+pandas
+requests
+psycopg2-binary
