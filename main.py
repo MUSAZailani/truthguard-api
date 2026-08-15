@@ -45,7 +45,7 @@ def get_session(request: Request):
         save_users(USERS)
     return session_id
 
-def get_credits(session_id): 
+def get_credits(session_id):
     global USERS
     USERS = load_users()
     return USERS.get(session_id, NEW_USER_CREDITS)
@@ -66,43 +66,51 @@ def clean_text(text):
     text = str(text).strip().lower()
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'\s*:\s*', ': ', text)
-    
+
     words = text.split()
     cleaned_words = []
     for w in words:
         w_check = w.replace(':', '').replace('@', '').replace('/', '').replace('.', '')
         cleaned_words.append(SPELL_DICT.get(w_check, w))
-    
+
     final_words = [cleaned_words[i] for i in range(len(cleaned_words)) if i == 0 or cleaned_words[i]!= cleaned_words[i-1]]
     return " ".join(final_words).strip()
 
 def normalize_for_fingerprint(text):
-    text = text.lower()
-    # Normalize emails: remove spaces around @ and.
+    text = text.lower().strip()
+    # If key: value format, only use the value for dedup
+    if ':' in text:
+        parts = text.split(':', 1)
+        text = parts[1].strip()
+
+    # Normalize emails
     text = re.sub(r'\s*@\s*', '@', text)
     text = re.sub(r'\s*\.\s*', '.', text)
-    # Normalize phones: keep only digits after phone:
-    text = re.sub(r'phone:\s*', 'phone:', text)
-    # Normalize prices: remove.00
+    # Normalize phones: only digits
+    digits = re.sub(r'\D', '', text)
+    if len(digits) >= 10: text = digits
+    # Normalize prices: remove $, and.00
+    text = re.sub(r'[\$\,]', '', text)
     text = re.sub(r'\.00\b', '', text)
-    # Normalize dates: remove - / and spaces
-    text = re.sub(r'[-/ ]', '', text)
+    # Normalize dates: only digits if 6+ digits
+    if len(digits) >= 6: text = digits
+
     return text
 
 def smart_clean(df: pd.DataFrame):
     df = df.astype(str)
     for col in df.columns: df[col] = df[col].apply(clean_text)
-    
+
     # Remove garbage
-    df = df[~df['data'].isin(['', 'nan', 'none', 'null', 'n/a'])]
+    df = df[~df['data'].isin(['', 'nan', 'none', 'null', 'n/a', 'data'])]
     df = df[df['data'].str.len() > 1]
-    
+
     # Normalize THEN fingerprint for aggressive dedup
     df['normalized'] = df['data'].apply(normalize_for_fingerprint)
     df['fingerprint'] = df['normalized'].str.replace(r'[^a-z0-9@]', '', regex=True)
     df = df.drop_duplicates(subset=['fingerprint'], keep='first')
     df = df.drop(columns=['normalized', 'fingerprint'])
-    
+
     return df
 
 def NAVBAR(credits):
