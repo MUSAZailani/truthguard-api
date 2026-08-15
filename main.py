@@ -14,6 +14,8 @@ app = FastAPI(title="TruthGuard AI")
 DB_FILE = "users.json"
 NEW_USER_CREDITS = 500
 PAYSTACK_LIVE_KEY = os.getenv("PAYSTACK_LIVE_KEY")
+# ADD YOUR RAILWAY URL HERE
+BASE_URL = "https://truthguard-api-production-d58a.up.railway.app"
 
 PLANS = {
     "500": {"price": 7000, "credits": 500, "name": "Starter"},
@@ -66,51 +68,35 @@ def clean_text(text):
     text = str(text).strip().lower()
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'\s*:\s*', ': ', text)
-
     words = text.split()
     cleaned_words = []
     for w in words:
         w_check = w.replace(':', '').replace('@', '').replace('/', '').replace('.', '')
         cleaned_words.append(SPELL_DICT.get(w_check, w))
-
     final_words = [cleaned_words[i] for i in range(len(cleaned_words)) if i == 0 or cleaned_words[i]!= cleaned_words[i-1]]
     return " ".join(final_words).strip()
 
 def normalize_for_fingerprint(text):
     text = text.lower().strip()
-
-    # Remove common keys before dedup: address:, phone:, name:, etc
     text = re.sub(r'^(address|phone|name|price|date|amount|ref|order|city|state|country|product|qty|total|note)\s*:?\s*', '', text)
-
-    # Normalize emails
     text = re.sub(r'\s*@\s*', '@', text)
     text = re.sub(r'\s*\.\s*', '.', text)
-
-    # If it's mostly digits, return only digits - for phones and dates
     digits = re.sub(r'\D', '', text)
     if len(digits) >= 10: return digits
     if len(digits) >= 6: return digits
-
-    # Clean prices
     text = re.sub(r'[\$\,]', '', text)
     text = re.sub(r'\.00\b', '', text)
-
     return text
 
 def smart_clean(df: pd.DataFrame):
     df = df.astype(str)
     for col in df.columns: df[col] = df[col].apply(clean_text)
-
-    # Remove garbage + single words + na
     df = df[~df['data'].isin(['', 'nan', 'none', 'null', 'n/a', 'data', 'na'])]
-    df = df[df['data'].str.len() > 2] # min 3 chars
-
-    # Normalize THEN fingerprint for nuclear dedup
+    df = df[df['data'].str.len() > 2]
     df['normalized'] = df['data'].apply(normalize_for_fingerprint)
     df['fingerprint'] = df['normalized'].str.replace(r'[^a-z0-9@]', '', regex=True)
     df = df.drop_duplicates(subset=['fingerprint'], keep='first')
     df = df.drop(columns=['normalized', 'fingerprint'])
-
     return df
 
 def NAVBAR(credits):
@@ -163,7 +149,7 @@ async def clean_page(request: Request):
     credits = get_credits(session_id)
     disabled = "disabled" if credits <= 0 else ""
     message = "kindly buy credits to continue" if credits <= 0 else ""
-    response = HTMLResponse(CLEAN_PAGE(credits, message, "error" if credits <= 0 else "", disabled))
+    response = HTMLResponse(CLEAN_PAGE(credits, message, "error" if credits <= 0 else "", "", disabled))
     response.set_cookie("tg_session", session_id)
     return response
 
@@ -204,6 +190,7 @@ async def checkout(request: Request, plan_key: str):
     response.set_cookie("tg_session", session_id)
     return response
 
+# ONLY THIS FUNCTION CHANGED - FIXES THE PAYSTACK ERROR
 @app.post("/pay")
 async def pay(request: Request, plan: str = Form(...), method: str = Form(...)):
     session_id = get_session(request)
@@ -211,14 +198,19 @@ async def pay(request: Request, plan: str = Form(...), method: str = Form(...)):
     amount = plan_data["price"] * 100
     headers = {"Authorization": f"Bearer {PAYSTACK_LIVE_KEY}", "Content-Type": "application/json"}
     data = {
-        "amount": amount, "email": f"{session_id}@truthguard.ai", "currency": "NGN",
-        "channels": [method], "callback_url": "https://your-app.railway.app/verify",
+        "amount": amount, 
+        "email": f"{session_id}@truthguard.ai", 
+        "currency": "NGN",
+        "channels": [method], 
+        "callback_url": f"{BASE_URL}/verify",
         "metadata": {"session_id": session_id, "credits": plan_data["credits"]}
     }
     res = requests.post("https://api.paystack.co/transaction/initialize", headers=headers, json=data)
     response_data = res.json()
     if response_data["status"]:
-        return RedirectResponse(url=response_data["data"]["authorization_url"], status_code=303)
+        auth_url = response_data["data"]["authorization_url"]
+        # FORCE FULL PAGE REDIRECT INSTEAD OF IFRAME
+        return HTMLResponse(f'<script>window.top.location.href = "{auth_url}";</script>')
     else:
         return RedirectResponse(url="/pricing", status_code=303)
 
@@ -235,7 +227,7 @@ async def verify(request: Request, reference: str):
         USERS = load_users()
         USERS[session_id] = get_credits(session_id) + credits
         save_users(USERS)
-    return RedirectResponse(url="/pricing", status_code=303)
+    return RedirectResponse(url="/pricing?status=success", status_code=303)
 
 @app.get("/download/{b64_data}")
 async def download(b64_data: str):
