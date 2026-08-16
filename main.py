@@ -39,7 +39,7 @@ def init_db():
                   email TEXT UNIQUE NOT NULL,
                   password_hash TEXT NOT NULL,
                   credits INTEGER DEFAULT 500)''')
-    # NEW: Activity log table
+    # UPDATED: action TEXT can now hold long preview
     c.execute('''CREATE TABLE IF NOT EXISTS activity_log
                  (id SERIAL PRIMARY KEY,
                   email TEXT NOT NULL,
@@ -250,7 +250,9 @@ async def clean_data(request: Request, file: UploadFile = File(None), text_data:
 
     try:
         df = None
+        filename = "Pasted Data"
         if file and file.filename:
+            filename = file.filename
             content = await file.read()
             df = pd.read_csv(io.BytesIO(content))
         elif text_data:
@@ -264,15 +266,19 @@ async def clean_data(request: Request, file: UploadFile = File(None), text_data:
         if credits < rows:
             return HTMLResponse(CLEAN_PAGE(email, credits, f"Not enough credits. This will cost {rows} credits. You have {credits}.", "error", "", ""))
 
+        # GET PREVIEW OF FIRST 3 ROWS
+        preview = df.head(3).to_string(index=False)
+        action_log = f"Cleaned {filename} | Preview: {preview[:250]}" # limit 250 chars
+
         df_cleaned = smart_clean(df)
         use_credits(email, rows)
-        log_activity(email, "Cleaned CSV", rows) # LOG THE CLEAN
+        log_activity(email, action_log, rows) # LOG WITH FILENAME + PREVIEW
         new_credits = get_credits(email)
 
         csv = df_cleaned.to_csv(index=False)
         b64 = base64.b64encode(csv.encode()).decode()
         download_link = f'<a href="data:file/csv;base64,{b64}" download="cleaned.csv" class=download>⬇️ Download Cleaned CSV</a>'
-        message = f"✅ Cleaned {rows} rows! {rows} Credits Used. You have {new_credits} left."
+        message = f"✅ Cleaned {rows} rows from {filename}! {rows} Credits Used. You have {new_credits} left."
         return HTMLResponse(CLEAN_PAGE(email, new_credits, message, "success", download_link, ""))
 
     except Exception as e:
@@ -349,7 +355,7 @@ def ADMIN_PAGE(users, logs, message=""):
     logs_html = ""
     for log in logs[:50]:
         log_id, email, action, rows, timestamp = log
-        logs_html += f"<tr><td>{timestamp}</td><td>{email}</td><td>{action}</td><td>{rows}</td></tr>"
+        logs_html += f"<tr><td>{timestamp}</td><td>{email}</td><td style='max-width:400px;word-break:break-word'>{action}</td><td>{rows}</td></tr>"
 
     return f"""<!DOCTYPE html><html><head><title>TruthGuard Admin</title><meta name=viewport content='width=device-width, initial-scale=1.0'>
     <style>body{{font-family:Arial;background:#0a0a0a;color:#e0e0e0;padding:20px}}
@@ -366,7 +372,7 @@ def ADMIN_PAGE(users, logs, message=""):
     <h1>🛡️ TruthGuard AI Admin</h1>
     <p class="success">{message}</p>
     <div class="stats">
-        <div class="card"><h2>{total_users}</h2><p>Total Users</p></div>
+        <div class="card"><h2>{total_users}</h2><p>Total Users</p></</div>
         <div class="card"><h2>{total_credits}</h2><p>Total Credits Left</p></div>
     </div>
     
