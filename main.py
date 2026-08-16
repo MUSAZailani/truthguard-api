@@ -39,10 +39,24 @@ def init_db():
                   email TEXT UNIQUE NOT NULL,
                   password_hash TEXT NOT NULL,
                   credits INTEGER DEFAULT 500)''')
+    # NEW: Activity log table
+    c.execute('''CREATE TABLE IF NOT EXISTS activity_log
+                 (id SERIAL PRIMARY KEY,
+                  email TEXT NOT NULL,
+                  action TEXT NOT NULL,
+                  rows INTEGER,
+                  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
     conn.commit()
     conn.close()
 
 init_db()
+
+def log_activity(email, action, rows=0):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO activity_log (email, action, rows) VALUES (%s,%s,%s)", (email, action, rows))
+    conn.commit()
+    conn.close()
 
 def hash_password(password):
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode()
@@ -63,6 +77,7 @@ def create_user(email, password):
     c = conn.cursor()
     hashed = hash_password(password)
     c.execute("INSERT INTO users (email, password_hash, credits) VALUES (%s,%s,%s)", (email, hashed, NEW_USER_CREDITS))
+    log_activity(email, "Account Created", 0)
     conn.commit()
     conn.close()
 
@@ -109,7 +124,7 @@ def clean_money(s):
         num = float(num)
         if unit.upper() == 'K': num *= 1000
         elif unit.upper() == 'M': num *= 1000000
-        elif unit.upper() == 'B': num *= 1000000
+        elif unit.upper() == 'B': num *= 1000000000
         return str(int(num))
     return s
 
@@ -130,7 +145,6 @@ def clean_text(s):
 def smart_clean(df):
     df = df.drop_duplicates()
     df = df.fillna('')
-
     for col in df.columns:
         col_lower = col.lower()
         if 'email' in col_lower:
@@ -139,7 +153,6 @@ def smart_clean(df):
             df[col] = df[col].astype(str).apply(clean_money)
         else:
             df[col] = df[col].astype(str).apply(clean_text)
-
     return df
 
 def NAVBAR(email, credits):
@@ -253,6 +266,7 @@ async def clean_data(request: Request, file: UploadFile = File(None), text_data:
 
         df_cleaned = smart_clean(df)
         use_credits(email, rows)
+        log_activity(email, "Cleaned CSV", rows) # LOG THE CLEAN
         new_credits = get_credits(email)
 
         csv = df_cleaned.to_csv(index=False)
@@ -302,50 +316,65 @@ async def verify(request: Request, reference: str):
         email = metadata["email"]
         credits = int(metadata["credits"])
         add_credits(email, credits)
+        log_activity(email, f"Purchased {credits} credits", 0)
     return RedirectResponse(url="/pricing?status=success", status_code=303)
 
-# ===== ADMIN DASHBOARD - ONLY FOR YOU =====
-def ADMIN_PAGE(users, message=""):
+
+# ===== ADMIN DASHBOARD WITH DELETE + LOGS =====
+def ADMIN_PAGE(users, logs, message=""):
     total_users = len(users)
     total_credits = sum(u[3] for u in users)
 
-    rows_html = ""
+    users_html = ""
     for user in users:
         user_id, user_email, _, user_credits = user
-        rows_html += f"""
+        users_html += f"""
             <tr>
                 <td>{user_email}</td>
                 <td class="credits">{user_credits}</td>
                 <td>
-                    <form action="/admin/add-credits?key={ADMIN_KEY}" method="post" style="display:flex; gap:5px;">
+                    <form action="/admin/add-credits?key={ADMIN_KEY}" method="post" style="display:inline;">
                         <input type="hidden" name="user_id" value="{user_id}">
-                        <input type="number" name="amount" value="500" min="1">
+                        <input type="number" name="amount" value="500" min="1" style="width:70px;">
                         <button type="submit">+ Add</button>
+                    </form>
+                    <form action="/admin/delete-user?key={ADMIN_KEY}" method="post" style="display:inline;" onsubmit="return confirm('Delete {user_email}?')">
+                        <input type="hidden" name="user_id" value="{user_id}">
+                        <button type="submit" style="background:#ff4444;">Delete</button>
                     </form>
                 </td>
             </tr>
         """
+    
+    logs_html = ""
+    for log in logs[:50]:
+        log_id, email, action, rows, timestamp = log
+        logs_html += f"<tr><td>{timestamp}</td><td>{email}</td><td>{action}</td><td>{rows}</td></tr>"
 
     return f"""<!DOCTYPE html><html><head><title>TruthGuard Admin</title><meta name=viewport content='width=device-width, initial-scale=1.0'>
     <style>body{{font-family:Arial;background:#0a0a0a;color:#e0e0e0;padding:20px}}
-  .stats{{display:flex;gap:20px;margin-bottom:30px}}
-  .card{{background:#111;padding:20px;border-radius:10px;flex:1;border:1px solid #333}}
-  .card h2{{color:#00ff88;margin:0}}
-    table{{width:100%;border-collapse:collapse;background:#111}}
-    th,td{{padding:12px;text-align:left;border-bottom:1px solid #333}}
+.stats{{display:flex;gap:20px;margin-bottom:30px}}
+.card{{background:#111;padding:20px;border-radius:10px;flex:1;border:1px solid #333}}
+.card h2{{color:#00ff88;margin:0}}
+    table{{width:100%;border-collapse:collapse;background:#111;margin-bottom:30px}}
+    th,td{{padding:12px;text-align:left;border-bottom:1px solid #333;font-size:0.9em}}
     th{{background:#1a1a1a;color:#00ff88}}
-  .credits{{color:#00ff88;font-weight:bold}}
+.credits{{color:#00ff88;font-weight:bold}}
     input{{padding:5px;background:#222;color:#fff;border:1px solid #444;border-radius:5px;width:80px}}
-    button{{padding:6px 12px;background:#00ff88;color:#000;border:none;border-radius:5px;cursor:pointer;font-weight:bold}}
-  .success{{color:#00ff88}}</style></head><body>
+    button{{padding:6px 10px;background:#00ff88;color:#000;border:none;border-radius:5px;cursor:pointer;font-weight:bold;margin-right:5px}}
+.success{{color:#00ff88}}</style></head><body>
     <h1>🛡️ TruthGuard AI Admin</h1>
     <p class="success">{message}</p>
     <div class="stats">
         <div class="card"><h2>{total_users}</h2><p>Total Users</p></div>
         <div class="card"><h2>{total_credits}</h2><p>Total Credits Left</p></div>
     </div>
+    
     <h2>Users</h2>
-    <table><tr><th>Email</th><th>Credits</th><th>Add Credits</th></tr>{rows_html}</table>
+    <table><tr><th>Email</th><th>Credits</th><th>Actions</th></tr>{users_html}</table>
+    
+    <h2>Recent Activity - Last 50</h2>
+    <table><tr><th>Time</th><th>Email</th><th>Action</th><th>Rows</th></tr>{logs_html}</table>
     </body></html>"""
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -358,28 +387,47 @@ async def admin_dashboard(request: Request):
     c = conn.cursor()
     c.execute("SELECT id, email, password_hash, credits FROM users ORDER BY id DESC")
     users = c.fetchall()
+    c.execute("SELECT * FROM activity_log ORDER BY timestamp DESC LIMIT 50")
+    logs = c.fetchall()
     conn.close()
 
     msg = request.query_params.get("msg", "")
-    return HTMLResponse(ADMIN_PAGE(users, msg))
+    return HTMLResponse(ADMIN_PAGE(users, logs, msg))
 
 @app.post("/admin/add-credits")
 async def admin_add_credits(request: Request, user_id: int = Form(...), amount: int = Form(...)):
     key = request.query_params.get("key")
-    if key!= ADMIN_KEY:
-        return HTMLResponse("401 Unauthorized - Wrong Key", status_code=401)
+    if key!= ADMIN_KEY: return HTMLResponse("401 Unauthorized", status_code=401)
 
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT credits FROM users WHERE id=%s", (user_id,))
+    c.execute("SELECT email, credits FROM users WHERE id=%s", (user_id,))
     result = c.fetchone()
-    if not result:
-        conn.close()
-        return RedirectResponse(url=f"/admin?key={ADMIN_KEY}&msg=User+not+found", status_code=303)
+    if not result: return RedirectResponse(url=f"/admin?key={ADMIN_KEY}&msg=User+not+found", status_code=303)
 
-    new_credits = result[0] + amount
+    email, credits = result
+    new_credits = credits + amount
     c.execute("UPDATE users SET credits=%s WHERE id=%s", (new_credits, user_id))
+    log_activity(email, f"Admin added {amount} credits", 0)
     conn.commit()
     conn.close()
 
     return RedirectResponse(url=f"/admin?key={ADMIN_KEY}&msg=Added+{amount}+credits", status_code=303)
+
+@app.post("/admin/delete-user")
+async def admin_delete_user(request: Request, user_id: int = Form(...)):
+    key = request.query_params.get("key")
+    if key!= ADMIN_KEY: return HTMLResponse("401 Unauthorized", status_code=401)
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT email FROM users WHERE id=%s", (user_id,))
+    result = c.fetchone()
+    if result:
+        email = result[0]
+        c.execute("DELETE FROM users WHERE id=%s", (user_id,))
+        log_activity(email, "Account Deleted by Admin", 0)
+    conn.commit()
+    conn.close()
+
+    return RedirectResponse(url=f"/admin?key={ADMIN_KEY}&msg=User+Deleted", status_code=303)
