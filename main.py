@@ -18,6 +18,7 @@ NEW_USER_CREDITS = 500
 PAYSTACK_LIVE_KEY = os.getenv("PAYSTACK_LIVE_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
 BASE_URL = "https://truthguard-api-production-d58a.up.railway.app"
+ADMIN_KEY = "truthguard_admin_2026" # CHANGE THIS TO SOMETHING ONLY YOU KNOW
 
 PLANS = {
     "500": {"price": 7000, "credits": 500, "name": "Starter"},
@@ -108,7 +109,7 @@ def clean_money(s):
         num = float(num)
         if unit.upper() == 'K': num *= 1000
         elif unit.upper() == 'M': num *= 1000000
-        elif unit.upper() == 'B': num *= 1000000000
+        elif unit.upper() == 'B': num *= 1000000
         return str(int(num))
     return s
 
@@ -124,7 +125,7 @@ def clean_text(s):
     s = re.sub(r'[^a-zA-Z0-9\s@._-]', '', s)
     words = s.split()
     words = [SPELL_DICT.get(w.lower(), w) for w in words]
-    return ' '.join(words).title() # ADDED.title() for capitalization
+    return ' '.join(words).title()
 
 def smart_clean(df):
     df = df.drop_duplicates()
@@ -133,11 +134,11 @@ def smart_clean(df):
     for col in df.columns:
         col_lower = col.lower()
         if 'email' in col_lower:
-            df[col] = df[col].astype(str).apply(clean_email) # EMAIL VALIDATION
+            df[col] = df[col].astype(str).apply(clean_email)
         elif 'fund' in col_lower or 'price' in col_lower or 'amount' in col_lower:
-            df[col] = df[col].astype(str).apply(clean_money) # MONEY STANDARDIZATION
+            df[col] = df[col].astype(str).apply(clean_money)
         else:
-            df[col] = df[col].astype(str).apply(clean_text) # TEXT + CAPITALIZATION
+            df[col] = df[col].astype(str).apply(clean_text)
 
     return df
 
@@ -224,7 +225,7 @@ async def clean_page(request: Request):
     credits = get_credits(email)
     disabled = "disabled" if credits <= 0 else ""
     message = "kindly buy credits to continue" if credits <= 0 else ""
-    response = HTMLResponse(CLEAN_PAGE(email, credits, message, "error" if credits <= 0 else "", "", disabled))
+    response = HTMLResponse(CLEAN_PAGE(email, credits, message, "error" if credits <= 0 else "", disabled))
     return response
 
 @app.post("/clean", response_class=HTMLResponse)
@@ -302,3 +303,83 @@ async def verify(request: Request, reference: str):
         credits = int(metadata["credits"])
         add_credits(email, credits)
     return RedirectResponse(url="/pricing?status=success", status_code=303)
+
+# ===== ADMIN DASHBOARD - ONLY FOR YOU =====
+def ADMIN_PAGE(users, message=""):
+    total_users = len(users)
+    total_credits = sum(u[3] for u in users)
+
+    rows_html = ""
+    for user in users:
+        user_id, user_email, _, user_credits = user
+        rows_html += f"""
+            <tr>
+                <td>{user_email}</td>
+                <td class="credits">{user_credits}</td>
+                <td>
+                    <form action="/admin/add-credits?key={ADMIN_KEY}" method="post" style="display:flex; gap:5px;">
+                        <input type="hidden" name="user_id" value="{user_id}">
+                        <input type="number" name="amount" value="500" min="1">
+                        <button type="submit">+ Add</button>
+                    </form>
+                </td>
+            </tr>
+        """
+
+    return f"""<!DOCTYPE html><html><head><title>TruthGuard Admin</title><meta name=viewport content='width=device-width, initial-scale=1.0'>
+    <style>body{{font-family:Arial;background:#0a0a0a;color:#e0e0e0;padding:20px}}
+  .stats{{display:flex;gap:20px;margin-bottom:30px}}
+  .card{{background:#111;padding:20px;border-radius:10px;flex:1;border:1px solid #333}}
+  .card h2{{color:#00ff88;margin:0}}
+    table{{width:100%;border-collapse:collapse;background:#111}}
+    th,td{{padding:12px;text-align:left;border-bottom:1px solid #333}}
+    th{{background:#1a1a1a;color:#00ff88}}
+  .credits{{color:#00ff88;font-weight:bold}}
+    input{{padding:5px;background:#222;color:#fff;border:1px solid #444;border-radius:5px;width:80px}}
+    button{{padding:6px 12px;background:#00ff88;color:#000;border:none;border-radius:5px;cursor:pointer;font-weight:bold}}
+  .success{{color:#00ff88}}</style></head><body>
+    <h1>🛡️ TruthGuard AI Admin</h1>
+    <p class="success">{message}</p>
+    <div class="stats">
+        <div class="card"><h2>{total_users}</h2><p>Total Users</p></div>
+        <div class="card"><h2>{total_credits}</h2><p>Total Credits Left</p></div>
+    </div>
+    <h2>Users</h2>
+    <table><tr><th>Email</th><th>Credits</th><th>Add Credits</th></tr>{rows_html}</table>
+    </body></html>"""
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_dashboard(request: Request):
+    key = request.query_params.get("key")
+    if key!= ADMIN_KEY:
+        return HTMLResponse("401 Unauthorized - Wrong Key", status_code=401)
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id, email, password_hash, credits FROM users ORDER BY id DESC")
+    users = c.fetchall()
+    conn.close()
+
+    msg = request.query_params.get("msg", "")
+    return HTMLResponse(ADMIN_PAGE(users, msg))
+
+@app.post("/admin/add-credits")
+async def admin_add_credits(request: Request, user_id: int = Form(...), amount: int = Form(...)):
+    key = request.query_params.get("key")
+    if key!= ADMIN_KEY:
+        return HTMLResponse("401 Unauthorized - Wrong Key", status_code=401)
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT credits FROM users WHERE id=%s", (user_id,))
+    result = c.fetchone()
+    if not result:
+        conn.close()
+        return RedirectResponse(url=f"/admin?key={ADMIN_KEY}&msg=User+not+found", status_code=303)
+
+    new_credits = result[0] + amount
+    c.execute("UPDATE users SET credits=%s WHERE id=%s", (new_credits, user_id))
+    conn.commit()
+    conn.close()
+
+    return RedirectResponse(url=f"/admin?key={ADMIN_KEY}&msg=Added+{amount}+credits", status_code=303)
